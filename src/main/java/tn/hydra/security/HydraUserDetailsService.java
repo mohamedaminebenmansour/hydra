@@ -2,6 +2,7 @@ package tn.hydra.security;
 
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
@@ -22,7 +23,7 @@ public class HydraUserDetailsService implements UserDetailsService {
     }
 
     @Override
-    public User loadUserByUsername(String email) throws UsernameNotFoundException {
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         AppUser u = users.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException(email));
         List<SimpleGrantedAuthority> authorities = permissions.permissionsOf(u.getId())
