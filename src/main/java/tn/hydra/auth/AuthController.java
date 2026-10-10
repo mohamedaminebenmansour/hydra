@@ -33,17 +33,20 @@ public class AuthController {
     private final AppUserRepository users;
     private final PermissionService permissions;
     private final EventLogService audit;
+    private final tn.hydra.user.UserService userService;
 
     public AuthController(AuthenticationManager authManager, AppUserRepository users,
-                          PermissionService permissions, EventLogService audit) {
+                          PermissionService permissions, EventLogService audit,
+                          tn.hydra.user.UserService userService) {
         this.authManager = authManager;
         this.users = users;
         this.permissions = permissions;
         this.audit = audit;
+        this.userService = userService;
     }
 
     public record LoginRequest(String email, String password) {}
-    public record MeResponse(String email, String fullName, boolean isOwner, Set<String> permissions) {}
+    public record MeResponse(String email, String fullName, boolean isOwner, boolean mustChangePassword, Set<String> permissions) {}
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest body,
@@ -74,6 +77,15 @@ public class AuthController {
         return ResponseEntity.ok(meResponse(auth.getName()));
     }
 
+    public record ChangePasswordRequest(String oldPassword, String newPassword) {}
+
+    @PostMapping("/change-password")
+    public ResponseEntity<?> changePassword(@RequestBody ChangePasswordRequest body,
+                                            Authentication auth) {
+        userService.changeMyPassword(auth, body.oldPassword(), body.newPassword());
+        return ResponseEntity.ok().build();
+    }
+
     @PostMapping("/logout")
     public ResponseEntity<?> logout(HttpServletRequest request) {
         audit.log("LOGOUT", null, null, null);
@@ -86,6 +98,8 @@ public class AuthController {
     private MeResponse meResponse(String email) {
         AppUser u = users.findByEmail(email).orElseThrow();
         return new MeResponse(u.getEmail(), u.getFullName(),
-                Boolean.TRUE.equals(u.getIsOwner()), permissions.permissionsOf(u.getId()));
+                Boolean.TRUE.equals(u.getIsOwner()),
+                Boolean.TRUE.equals(u.getMustChangePassword()),
+                permissions.permissionsOf(u.getId()));
     }
 }

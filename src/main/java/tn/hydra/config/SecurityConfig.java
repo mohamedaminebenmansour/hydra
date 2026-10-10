@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import tn.hydra.security.HydraUserDetailsService;
 
 @Configuration
@@ -25,9 +26,14 @@ public class SecurityConfig {
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf.csrfTokenRepository(
-                    CookieCsrfTokenRepository.withHttpOnlyFalse()))
+                    CookieCsrfTokenRepository.withHttpOnlyFalse())
+                    // Plain handler: client sends the raw cookie value as X-XSRF-TOKEN
+                    // (the Angular/HttpClient default). The Security 7 default Xor handler
+                    // expects a masked 2x-token-length payload and rejects raw cookies.
+                    .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
             .authorizeHttpRequests(auth -> auth
                     .requestMatchers("/api/auth/login").permitAll()
+                    .requestMatchers("/error").permitAll()
                     .requestMatchers("/health").permitAll()
                     .anyRequest().authenticated())
             .formLogin(f -> f.disable())

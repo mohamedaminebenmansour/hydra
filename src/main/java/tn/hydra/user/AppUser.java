@@ -14,6 +14,7 @@ public class AppUser {
     @Column(name = "full_name") private String fullName;
     @Column(name = "is_owner") private Boolean isOwner;
     @Column(name = "is_active") private Boolean isActive;
+    @Column(name = "must_change_password") private Boolean mustChangePassword;
     @Column(name = "created_at") private Instant createdAt;
 
     public UUID getId() { return id; }                 public void setId(UUID v) { id = v; }
@@ -23,5 +24,6 @@ public class AppUser {
     public String getFullName() { return fullName; }   public void setFullName(String v) { fullName = v; }
     public Boolean getIsOwner() { return isOwner; }    public void setIsOwner(Boolean v) { isOwner = v; }
     public Boolean getIsActive() { return isActive; }  public void setIsActive(Boolean v) { isActive = v; }
+    public Boolean getMustChangePassword() { return mustChangePassword; } public void setMustChangePassword(Boolean v) { mustChangePassword = v; }
     public Instant getCreatedAt() { return createdAt; } public void setCreatedAt(Instant v) { createdAt = v; }
 }
