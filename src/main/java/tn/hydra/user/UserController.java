@@ -24,11 +24,27 @@ public class UserController {
                                     List<String> roleCodes, String overrideReason) {}
     public record ChangePasswordRequest(String oldPassword, String newPassword) {}
     public record ResetPasswordRequest(String newPassword) {}
+    public record UpdateUserRequest(String fullName, String password) {}
+    public record UpdateRolesRequest(List<String> roleCodes, String overrideReason) {}
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_USER_CREATE')")
+    @PreAuthorize("hasAnyAuthority('PERM_USER_CREATE','PERM_USER_UPDATE','PERM_ROLE_ASSIGN')")
     public List<UserService.UserResponse> list(Authentication auth) {
         return service.listUsers(auth);
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('PERM_USER_UPDATE')")
+    public UserService.UserResponse update(@PathVariable UUID id, @RequestBody UpdateUserRequest body,
+                                           Authentication auth) {
+        return service.updateUser(auth, id, body.fullName(), body.password());
+    }
+
+    @PutMapping("/{id}/roles")
+    @PreAuthorize("hasAuthority('PERM_ROLE_ASSIGN')")
+    public UserService.UserResponse updateRoles(@PathVariable UUID id, @RequestBody UpdateRolesRequest body,
+                                                Authentication auth) {
+        return service.updateUserRoles(auth, id, body.roleCodes(), body.overrideReason());
     }
 
     @PostMapping
@@ -48,6 +64,14 @@ public class UserController {
     @PostMapping("/{id}/reactivate")
     @PreAuthorize("hasAuthority('PERM_USER_DEACTIVATE')")
     public ResponseEntity<?> reactivate(@PathVariable UUID id, Authentication auth) {
+        service.reactivateUser(auth, id);
+        return ResponseEntity.ok().build();
+    }
+
+    // Alias: the Angular front calls /activate, the service already knows /reactivate.
+    @PostMapping("/{id}/activate")
+    @PreAuthorize("hasAuthority('PERM_USER_DEACTIVATE')")
+    public ResponseEntity<?> activate(@PathVariable UUID id, Authentication auth) {
         service.reactivateUser(auth, id);
         return ResponseEntity.ok().build();
     }

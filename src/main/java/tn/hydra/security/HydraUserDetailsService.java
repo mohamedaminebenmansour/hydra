@@ -10,6 +10,7 @@ import tn.hydra.user.AppUser;
 import tn.hydra.user.AppUserRepository;
 
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class HydraUserDetailsService implements UserDetailsService {
@@ -26,8 +27,13 @@ public class HydraUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         AppUser u = users.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException(email));
-        List<SimpleGrantedAuthority> authorities = permissions.permissionsOf(u.getId())
-                .stream().map(SimpleGrantedAuthority::new).toList();
+        // The owner never ends up with empty authorities, whatever user_role holds:
+        // is_owner == true means every permission in the catalogue.
+        Set<String> perms = Boolean.TRUE.equals(u.getIsOwner())
+                ? permissions.allPermissions()
+                : permissions.permissionsOf(u.getId());
+        List<SimpleGrantedAuthority> authorities = perms.stream()
+                .map(SimpleGrantedAuthority::new).toList();
         return User.withUsername(u.getEmail())
                 .password(u.getPasswordHash())
                 .authorities(authorities)

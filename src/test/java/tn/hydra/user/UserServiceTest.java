@@ -315,4 +315,143 @@ class UserServiceTest {
         assertThat(list.get(0).roleCodes()).containsExactly("QA", "FINANCE");
         assertThat(list.get(0).roleLabels()).containsExactly("Qualité", "Finance");
     }
+
+    // ── update user roles ──────────────────────────────────────────────
+
+    @Test
+    void updateRoles_refusesToxicPair_withoutOverrideReason() {
+        UUID targetId = UUID.randomUUID();
+        UUID financeId = UUID.randomUUID();
+        UUID achatId = UUID.randomUUID();
+        when(users.findById(targetId))
+                .thenReturn(Optional.of(user(targetId, "member@hydra.tn", false, true)));
+        when(jdbc.queryForList(anyString(), eq(UUID.class), eq("FINANCE"), eq(ORG)))
+                .thenReturn(List.of(financeId));
+        when(jdbc.queryForList(anyString(), eq(UUID.class), eq("ACHAT"), eq(ORG)))
+                .thenReturn(List.of(achatId));
+        when(toxicPairs.conflictingPairs(any())).thenReturn(List.of(
+                new ToxicPairService.RolePairConflict(
+                        "FINANCE", "ACHAT", "The person who buys cannot be the person who pays.")));
+
+        assertThatThrownBy(() -> service.updateUserRoles(auth, targetId,
+                List.of("FINANCE", "ACHAT"), null))
+                .isInstanceOfSatisfying(BusinessRuleException.class, e -> {
+                    assertThat(e.getCode()).isEqualTo("TOXIC_PAIR");
+                    assertThat(e.getMessage())
+                            .isEqualTo("The person who buys cannot be the person who pays.");
+                });
+        verify(jdbc, never()).update(contains("delete from user_role"), any(Object.class));
+    }
+
+    @Test
+    void updateRoles_replacesAllRows_revokesSessions_andAudits() {
+        UUID targetId = UUID.randomUUID();
+        UUID roleId = UUID.randomUUID();
+        when(users.findById(targetId))
+                .thenReturn(Optional.of(user(targetId, "member@hydra.tn", false, true)));
+        when(jdbc.queryForList(anyString(), eq(UUID.class), eq("QA"), eq(ORG)))
+                .thenReturn(List.of(roleId));
+        when(jdbc.queryForList(anyString(), eq(String.class), eq(roleId)))
+                .thenReturn(List.of("Qualité"));
+        when(toxicPairs.conflictingPairs(any())).thenReturn(List.of());
+
+        service.updateUserRoles(auth, targetId, List.of("QA"), null);
+
+        verify(jdbc).update(contains("delete from user_role"), eq(targetId));
+        verify(jdbc).update(contains("insert into user_role"), eq(targetId), eq(roleId), eq(ADMIN_ID));
+        verify(sessions).revokeAllFor("member@hydra.tn");
+        verify(audit).log(eq("USER_ROLES_UPDATED"), eq("app_user"), eq(targetId), any());
+    }
+
+    @Test
+    void updateRoles_withOverrideReason_recordsToxicPairOverride() {
+        UUID targetId = UUID.randomUUID();
+        UUID roleId = UUID.randomUUID();
+        when(users.findById(targetId))
+                .thenReturn(Optional.of(user(targetId, "member@hydra.tn", false, true)));
+        when(jdbc.queryForList(anyString(), eq(UUID.class), eq("FINANCE"), eq(ORG)))
+                .thenReturn(List.of(roleId));
+        when(jdbc.queryForList(anyString(), eq(String.class), eq(roleId)))
+                .thenReturn(List.of("Finance"));
+        when(toxicPairs.conflictingPairs(any())).thenReturn(List.of(
+                new ToxicPairService.RolePairConflict(
+                        "FINANCE", "ACHAT", "The person who buys cannot be the person who pays.")));
+
+        service.updateUserRoles(auth, targetId, List.of("FINANCE"), "Contrôle interne exceptionnel");
+
+        verify(jdbc).update(contains("delete from toxic_pair_override"), eq(targetId));
+        verify(jdbc).update(contains("insert into toxic_pair_override"),
+                eq(ORG), eq(targetId), eq("FINANCE"), eq("ACHAT"),
+                eq("Contrôle interne exceptionnel"), eq(ADMIN_ID));
+        verify(audit).log(eq("TOXIC_PAIR_OVERRIDDEN"), eq("app_user"), eq(targetId), any());
+        verify(audit).log(eq("USER_ROLES_UPDATED"), eq("app_user"), eq(targetId), any());
+        verify(sessions).revokeAllFor("member@hydra.tn");
+    }
+
+    @Test
+    void updateRoles_rejectsUnknownRoleCode() {
+        UUID targetId = UUID.randomUUID();
+        when(users.findById(targetId))
+                .thenReturn(Optional.of(user(targetId, "member@hydra.tn", false, true)));
+        when(jdbc.queryForList(anyString(), eq(UUID.class), eq("GHOST"), eq(ORG)))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.updateUserRoles(auth, targetId, List.of("GHOST"), null))
+                .isInstanceOfSatisfying(BusinessRuleException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("UNKNOWN_ROLE"));
+    }
+
+    // ── update user ────────────────────────────────────────────────────
+
+    @Test
+    void updateUser_renames_andAudits() {
+        UUID targetId = UUID.randomUUID();
+        when(users.findById(targetId))
+                .thenReturn(Optional.of(user(targetId, "member@hydra.tn", false, true)));
+
+        service.updateUser(auth, targetId, "Nouveau Nom", null);
+
+        verify(jdbc).update(contains("full_name = ?"), eq("Nouveau Nom"), eq(targetId));
+        verify(jdbc, never()).update(contains("password_hash"), any(), any());
+        verifyNoInteractions(sessions);
+        verify(audit).log(eq("USER_UPDATED"), eq("app_user"), eq(targetId), any());
+    }
+
+    @Test
+    void updateUser_withPassword_forcesChange_andKillsSessions() {
+        UUID targetId = UUID.randomUUID();
+        when(users.findById(targetId))
+                .thenReturn(Optional.of(user(targetId, "member@hydra.tn", false, true)));
+        when(encoder.encode("newpassword1")).thenReturn("$newhash");
+
+        service.updateUser(auth, targetId, "Nouveau Nom", "newpassword1");
+
+        verify(jdbc).update(contains("full_name = ?"), eq("Nouveau Nom"), eq(targetId));
+        verify(jdbc).update(contains("must_change_password = true"), eq("$newhash"), eq(targetId));
+        verify(sessions).revokeAllFor("member@hydra.tn");
+        verify(audit).log(eq("USER_UPDATED"), eq("app_user"), eq(targetId), any());
+    }
+
+    @Test
+    void updateUser_rejectsWeakPassword() {
+        UUID targetId = UUID.randomUUID();
+        when(users.findById(targetId))
+                .thenReturn(Optional.of(user(targetId, "member@hydra.tn", false, true)));
+
+        assertThatThrownBy(() -> service.updateUser(auth, targetId, "Nouveau Nom", "court"))
+                .isInstanceOfSatisfying(BusinessRuleException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("WEAK_PASSWORD"));
+        verify(jdbc, never()).update(contains("full_name = ?"), any(), any());
+    }
+
+    @Test
+    void updateUser_rejectsBlankName() {
+        UUID targetId = UUID.randomUUID();
+        when(users.findById(targetId))
+                .thenReturn(Optional.of(user(targetId, "member@hydra.tn", false, true)));
+
+        assertThatThrownBy(() -> service.updateUser(auth, targetId, "  ", null))
+                .isInstanceOfSatisfying(BusinessRuleException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("REQUIRED_FIELDS"));
+    }
 }

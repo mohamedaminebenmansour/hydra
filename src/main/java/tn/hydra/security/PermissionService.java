@@ -27,4 +27,12 @@ public class PermissionService {
                 .map(p -> "PERM_" + p)
                 .collect(Collectors.toSet());
     }
+
+    /** Every permission in the catalogue, as authorities. Used for is_owner accounts. */
+    public Set<String> allPermissions() {
+        return jdbc.queryForList("select id from permission", String.class)
+                .stream()
+                .map(p -> "PERM_" + p)
+                .collect(Collectors.toSet());
+    }
 }

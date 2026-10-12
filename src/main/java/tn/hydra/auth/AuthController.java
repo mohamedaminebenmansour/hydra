@@ -97,9 +97,12 @@ public class AuthController {
 
     private MeResponse meResponse(String email) {
         AppUser u = users.findByEmail(email).orElseThrow();
+        Set<String> perms = Boolean.TRUE.equals(u.getIsOwner())
+                ? permissions.allPermissions()
+                : permissions.permissionsOf(u.getId());
         return new MeResponse(u.getEmail(), u.getFullName(),
                 Boolean.TRUE.equals(u.getIsOwner()),
                 Boolean.TRUE.equals(u.getMustChangePassword()),
-                permissions.permissionsOf(u.getId()));
+                perms);
     }
 }

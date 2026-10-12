@@ -187,7 +187,78 @@ public class UserService {
                 "{\"email\":\"" + jsonEscape(target.getEmail()) + "\"}");
     }
 
+    // ══════════════════ 6. UPDATE USER ROLES ══════════════════
+
+    @Transactional
+    public UserResponse updateUserRoles(Authentication auth, UUID id, List<String> roleCodes,
+                                        String overrideReason) {
+        AppUser me = users.findByEmail(auth.getName()).orElseThrow();
+        AppUser target = editable(auth, id);
+
+        if (roleCodes == null || roleCodes.isEmpty())
+            throw new BusinessRuleException("NO_ROLE", "Sélectionnez au moins un rôle");
+        Set<String> codes = new LinkedHashSet<>(roleCodes);
+        Map<String, UUID> roleIds = roleIds(codes, me.getOrgId());
+        if (roleIds.size() != codes.size())
+            throw new BusinessRuleException("UNKNOWN_ROLE", "Un des rôles sélectionnés n'existe pas");
+
+        // toxic pair without an override reason → 409 {code: TOXIC_PAIR} via GlobalExceptionHandler
+        List<ToxicPairService.RolePairConflict> conflicts = toxicPairs.conflictingPairs(codes);
+        if (!conflicts.isEmpty() && isBlank(overrideReason))
+            throw new BusinessRuleException("TOXIC_PAIR", conflicts.get(0).reason());
+
+        jdbc.update("delete from user_role where user_id = ?", target.getId());
+        for (String code : codes) {
+            jdbc.update("insert into user_role (user_id, role_id, assigned_by) values (?, ?, ?)",
+                    target.getId(), roleIds.get(code), me.getId());
+        }
+
+        if (!conflicts.isEmpty()) {
+            jdbc.update("delete from toxic_pair_override where user_id = ?", target.getId());
+            for (ToxicPairService.RolePairConflict c : conflicts) {
+                jdbc.update("""
+                        insert into toxic_pair_override (org_id, user_id, role_a, role_b, reason, granted_by)
+                        values (?, ?, ?, ?, ?, ?)
+                        """, me.getOrgId(), target.getId(), c.roleA(), c.roleB(), overrideReason, me.getId());
+            }
+            audit.log("TOXIC_PAIR_OVERRIDDEN", "app_user", target.getId(),
+                    "{\"reason\":\"" + jsonEscape(overrideReason) + "\"}");
+        }
+
+        sessions.revokeAllFor(target.getEmail());       // his new rights apply on the next login only
+        audit.log("USER_ROLES_UPDATED", "app_user", target.getId(),
+                "{\"roles\":\"" + jsonEscape(String.join(",", codes)) + "\"}");
+        return new UserResponse(target.getId(), target.getEmail(), target.getFullName(),
+                Boolean.TRUE.equals(target.getIsOwner()), Boolean.TRUE.equals(target.getIsActive()),
+                new ArrayList<>(codes), labelsOf(roleIds, codes));
+    }
+
+    // ══════════════════ 7. UPDATE USER (NAME / PASSWORD) ══════════════════
+
+    @Transactional
+    public UserResponse updateUser(Authentication auth, UUID id, String fullName, String password) {
+        AppUser target = editable(auth, id);
+        if (isBlank(fullName))
+            throw new BusinessRuleException("REQUIRED_FIELDS", "Le nom est obligatoire");
+        if (!isBlank(password) && password.length() < 8)
+            throw new BusinessRuleException("WEAK_PASSWORD", "Le mot de passe doit faire au moins 8 caractères");
+
+        jdbc.update("update app_user set full_name = ? where id = ?", fullName.trim(), target.getId());
+        if (!isBlank(password)) {
+            jdbc.update("update app_user set password_hash = ?, must_change_password = true where id = ?",
+                    encoder.encode(password), target.getId());
+            sessions.revokeAllFor(target.getEmail());   // he must log in again with the new password
+        }
+        audit.log("USER_UPDATED", "app_user", target.getId(),
+                "{\"email\":\"" + jsonEscape(target.getEmail()) + "\"}");
+
+        return new UserResponse(target.getId(), target.getEmail(), fullName.trim(),
+                Boolean.TRUE.equals(target.getIsOwner()), Boolean.TRUE.equals(target.getIsActive()),
+                roleCodesOf(target.getId()), roleLabelsOf(target.getId()));
+    }
+
     // ══════════════════ HELPERS ══════════════════
+
 
     /** Id of the session serving this request, or null outside a web request. */
     private String currentSessionId() {
@@ -212,6 +283,26 @@ public class UserService {
         if (Boolean.TRUE.equals(target.getIsOwner()))
             throw new BusinessRuleException("OWNER_PROTECTED", "Le compte gérant ne peut pas être modifié");
         return target;
+    }
+
+    /** Role codes assigned to a user, system and custom alike, ordered by code. */
+    private List<String> roleCodesOf(UUID userId) {
+        return jdbc.queryForList("""
+                select r.code from user_role ur
+                join role r on r.id = ur.role_id
+                where ur.user_id = ?
+                order by r.code
+                """, String.class, userId);
+    }
+
+    /** Labels matching {@link #roleCodesOf(UUID)} row for row. */
+    private List<String> roleLabelsOf(UUID userId) {
+        return jdbc.queryForList("""
+                select r.label from user_role ur
+                join role r on r.id = ur.role_id
+                where ur.user_id = ?
+                order by r.code
+                """, String.class, userId);
     }
 
     private Map<String, UUID> roleIds(Set<String> codes, UUID orgId) {
