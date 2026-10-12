@@ -22,11 +22,13 @@ public class TicketController {
 
     public record CreateTicketRequest(String title, String description, UUID projectId,
                                       UUID assignedToId, String priority,
-                                      LocalDate startAt, LocalDate dueAt) {}
+                                      LocalDate startAt, LocalDate dueAt,
+                                      UUID documentId) {}
 
     public record UpdateTicketRequest(String title, String description, UUID projectId,
                                       UUID assignedToId, String priority,
-                                      LocalDate startAt, LocalDate dueAt) {}
+                                      LocalDate startAt, LocalDate dueAt,
+                                      UUID documentId) {}
 
     @GetMapping
     @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
@@ -50,7 +52,7 @@ public class TicketController {
     @PreAuthorize("hasAuthority('PERM_TICKET_WRITE')")
     public TicketResponse create(@RequestBody CreateTicketRequest body, Authentication auth) {
         return service.create(auth, body.title(), body.description(), body.projectId(),
-                body.assignedToId(), body.priority(), body.startAt(), body.dueAt());
+                body.assignedToId(), body.priority(), body.startAt(), body.dueAt(), body.documentId());
     }
 
     @PutMapping("/{id}")
@@ -60,7 +62,7 @@ public class TicketController {
                                                  Authentication auth) {
         TicketResponse t = service.update(auth, id, body.title(), body.description(),
                 body.projectId(), body.assignedToId(), body.priority(),
-                body.startAt(), body.dueAt());
+                body.startAt(), body.dueAt(), body.documentId());
         return t == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(t);
     }
 

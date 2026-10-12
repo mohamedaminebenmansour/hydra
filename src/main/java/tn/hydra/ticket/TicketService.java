@@ -33,7 +33,8 @@ public class TicketService {
                                  UUID assignedToId, String assignedToName,
                                  LocalDate startAt, LocalDate dueAt,
                                  Instant createdAt, UUID createdById, String createdByName,
-                                 Instant resolvedAt, UUID resolvedById) {}
+                                 Instant resolvedAt, UUID resolvedById,
+                                 UUID documentId) {}
 
     private static final String SELECT_SQL = """
             select t.id, t.title, t.description, t.status, t.priority,
@@ -41,7 +42,8 @@ public class TicketService {
                    t.assigned_to, au.full_name as assigned_to_name,
                    t.start_at, t.due_at,
                    t.created_at, t.created_by, cu.full_name as created_by_name,
-                   t.resolved_at, t.resolved_by
+                   t.resolved_at, t.resolved_by,
+                   t.document_id
             from ticket t
             left join project p on p.id = t.project_id
             left join app_user au on au.id = t.assigned_to
@@ -83,7 +85,7 @@ public class TicketService {
     @Transactional
     public TicketResponse create(Authentication auth, String title, String description,
                                  UUID projectId, UUID assignedToId, String priority,
-                                 LocalDate startAt, LocalDate dueAt) {
+                                 LocalDate startAt, LocalDate dueAt, UUID documentId) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
         if (isBlank(title))
             throw new BusinessRuleException("REQUIRED_FIELDS", "Le titre est obligatoire");
@@ -95,10 +97,10 @@ public class TicketService {
 
         UUID id = jdbc.queryForObject("""
                 insert into ticket (org_id, title, description, status, priority,
-                                    project_id, assigned_to, start_at, due_at, created_by)
-                values (?, ?, ?, 'OUVERT', ?, ?, ?, ?, ?, ?) returning id
+                                    project_id, assigned_to, start_at, due_at, created_by, document_id)
+                values (?, ?, ?, 'OUVERT', ?, ?, ?, ?, ?, ?, ?) returning id
                 """, UUID.class, me.getOrgId(), title.trim(), description,
-                prio, projectId, assignedToId, startAt, dueAt, me.getId());
+                prio, projectId, assignedToId, startAt, dueAt, me.getId(), documentId);
 
         audit.log("TICKET_CREATED", "ticket", id,
                 "{\"title\":\"" + jsonEscape(title.trim()) + "\"}");
@@ -110,7 +112,7 @@ public class TicketService {
     @Transactional
     public TicketResponse update(Authentication auth, UUID id, String title, String description,
                                  UUID projectId, UUID assignedToId, String priority,
-                                 LocalDate startAt, LocalDate dueAt) {
+                                 LocalDate startAt, LocalDate dueAt, UUID documentId) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
         Map<String, Object> current = requireTicket(me, id);
 
@@ -133,6 +135,7 @@ public class TicketService {
         if (priority != null)     { sql.append(", priority = ?");     args.add(priority); }
         if (startAt != null)      { sql.append(", start_at = ?");     args.add(startAt); }
         if (dueAt != null)        { sql.append(", due_at = ?");       args.add(dueAt); }
+        if (documentId != null)   { sql.append(", document_id = ?");  args.add(documentId); }
         sql.append(" where id = ? and org_id = ?");
         args.add(id);
         args.add(me.getOrgId());
@@ -255,7 +258,8 @@ public class TicketService {
                 (UUID) r.get("created_by"),
                 (String) r.get("created_by_name"),
                 toInstant(r.get("resolved_at")),
-                (UUID) r.get("resolved_by"));
+                (UUID) r.get("resolved_by"),
+                (UUID) r.get("document_id"));
     }
 
     private static Instant toInstant(Object v) {

@@ -33,6 +33,8 @@ public class ProjectService {
     public record ProjectResponse(UUID id, String code, String name, String status,
                                   Instant createdAt) {}
 
+    public record ProjectOption(UUID id, String name) {}
+
     public record CreateProjectRequest(String name, String code) {}
     public record UpdateProjectRequest(String name, String code, String status) {}
 
@@ -47,6 +49,18 @@ public class ProjectService {
                 order by name
                 """, me.getOrgId())
                 .stream().map(ProjectService::toResponse).toList();
+    }
+
+    public List<ProjectOption> projectOptions(Authentication auth) {
+        AppUser me = users.findByEmail(auth.getName()).orElseThrow();
+        return jdbc.queryForList("""
+                select id, name
+                from project
+                where org_id = ? and status = 'ACTIF'
+                order by name
+                """, me.getOrgId())
+                .stream().map(r -> new ProjectOption((UUID) r.get("id"), (String) r.get("name")))
+                .toList();
     }
 
     // ══════════════════ 2. GET ONE PROJECT (null → 404) ══════════════════

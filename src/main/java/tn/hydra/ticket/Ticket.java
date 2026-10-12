@@ -18,6 +18,7 @@ public class Ticket {
     private String priority;
     @Column(name = "project_id") private UUID projectId;
     @Column(name = "assigned_to") private UUID assignedTo;
+    @Column(name = "document_id") private UUID documentId;
     @Column(name = "start_at") private LocalDate startAt;
     @Column(name = "due_at") private LocalDate dueAt;
     @Column(name = "created_by") private UUID createdBy;
@@ -34,6 +35,7 @@ public class Ticket {
     public String getPriority() { return priority; }   public void setPriority(String v) { priority = v; }
     public UUID getProjectId() { return projectId; }   public void setProjectId(UUID v) { projectId = v; }
     public UUID getAssignedTo() { return assignedTo; } public void setAssignedTo(UUID v) { assignedTo = v; }
+    public UUID getDocumentId() { return documentId; } public void setDocumentId(UUID v) { documentId = v; }
     public LocalDate getStartAt() { return startAt; }  public void setStartAt(LocalDate v) { startAt = v; }
     public LocalDate getDueAt() { return dueAt; }      public void setDueAt(LocalDate v) { dueAt = v; }
     public UUID getCreatedBy() { return createdBy; }   public void setCreatedBy(UUID v) { createdBy = v; }
