@@ -252,14 +252,23 @@ public class TicketService {
                 (String) r.get("project_name"),
                 (UUID) r.get("assigned_to"),
                 (String) r.get("assigned_to_name"),
-                (LocalDate) r.get("start_at"),
-                (LocalDate) r.get("due_at"),
+                toLocalDate(r.get("start_at")),
+                toLocalDate(r.get("due_at")),
                 toInstant(r.get("created_at")),
                 (UUID) r.get("created_by"),
                 (String) r.get("created_by_name"),
                 toInstant(r.get("resolved_at")),
                 (UUID) r.get("resolved_by"),
                 (UUID) r.get("document_id"));
+    }
+
+    private static LocalDate toLocalDate(Object v) {
+        if (v == null) return null;
+        if (v instanceof LocalDate ld) return ld;
+        if (v instanceof java.sql.Date d) return d.toLocalDate();
+        if (v instanceof java.time.LocalDateTime ldt) return ldt.toLocalDate();
+        if (v instanceof String s && !s.isBlank()) return LocalDate.parse(s.substring(0, 10));
+        return null;
     }
 
     private static Instant toInstant(Object v) {

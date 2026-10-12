@@ -24,6 +24,12 @@ public class ProjectController {
         return service.list(auth);
     }
 
+    @GetMapping("/options")
+    @PreAuthorize("hasAnyAuthority('PERM_TICKET_WRITE','PERM_TICKET_ASSIGN','PERM_PROJECT_READ')")
+    public List<ProjectService.ProjectOption> options(Authentication auth) {
+        return service.projectOptions(auth);
+    }
+
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('PERM_PROJECT_READ')")
     public ResponseEntity<ProjectService.ProjectResponse> get(@PathVariable UUID id,
@@ -46,11 +52,5 @@ public class ProjectController {
                                                  @RequestBody ProjectService.UpdateProjectRequest body,
                                                  Authentication auth) {
         return service.update(auth, id, body.name(), body.code(), body.status());
-    }
-
-    @GetMapping("/options")
-    @PreAuthorize("hasAnyAuthority('PERM_TICKET_WRITE','PERM_TICKET_ASSIGN','PERM_PROJECT_READ')")
-    public List<ProjectService.ProjectOption> options(Authentication auth) {
-        return service.projectOptions(auth);
     }
 }
