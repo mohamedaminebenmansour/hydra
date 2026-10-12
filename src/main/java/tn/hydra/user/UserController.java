@@ -33,6 +33,14 @@ public class UserController {
         return service.listUsers(auth);
     }
 
+    // Lightweight active-user picker so field users holding TICKET_WRITE can
+    // assign tickets without needing USER_CREATE (GET /api/users stays restricted).
+    @GetMapping("/options")
+    @PreAuthorize("hasAnyAuthority('PERM_TICKET_WRITE','PERM_TICKET_ASSIGN','PERM_USER_CREATE')")
+    public List<UserService.UserOption> options(Authentication auth) {
+        return service.userOptions(auth);
+    }
+
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('PERM_USER_UPDATE')")
     public UserService.UserResponse update(@PathVariable UUID id, @RequestBody UpdateUserRequest body,

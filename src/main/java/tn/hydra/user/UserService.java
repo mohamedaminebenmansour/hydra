@@ -33,6 +33,9 @@ public class UserService {
     public record UserResponse(UUID id, String email, String fullName, boolean isOwner,
                                boolean isActive, List<String> roleCodes, List<String> roleLabels) {}
 
+    /** Lightweight picker for assignee dropdowns (ticket forms etc.). */
+    public record UserOption(UUID id, String fullName, String email) {}
+
     // ══════════════════ 1. CHANGE MY PASSWORD ══════════════════
 
     @Transactional
@@ -86,6 +89,22 @@ public class UserService {
             }
         }
         return new ArrayList<>(byId.values());
+    }
+
+    // ══════════════════ 2b. ACTIVE USER OPTIONS ══════════════════
+
+    /** Active users of the caller's org, for assignee pickers (needs no USER_* permission). */
+    public List<UserOption> userOptions(Authentication auth) {
+        AppUser me = users.findByEmail(auth.getName()).orElseThrow();
+        return jdbc.queryForList("""
+                select id, full_name, email
+                from app_user
+                where org_id = ? and is_active = true
+                order by full_name
+                """, me.getOrgId()).stream()
+                .map(r -> new UserOption((UUID) r.get("id"),
+                        (String) r.get("full_name"), (String) r.get("email")))
+                .toList();
     }
 
     // ══════════════════ 3. CREATE USER ══════════════════

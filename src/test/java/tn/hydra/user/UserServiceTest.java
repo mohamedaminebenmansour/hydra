@@ -11,6 +11,7 @@ import tn.hydra.common.BusinessRuleException;
 import tn.hydra.security.SessionRevoker;
 import tn.hydra.security.ToxicPairService;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -453,5 +454,22 @@ class UserServiceTest {
         assertThatThrownBy(() -> service.updateUser(auth, targetId, "  ", null))
                 .isInstanceOfSatisfying(BusinessRuleException.class,
                         e -> assertThat(e.getCode()).isEqualTo("REQUIRED_FIELDS"));
+    }
+
+    // ── user options picker ─────────────────────────────────────────────
+
+    @Test
+    void userOptions_returnsActiveUsersOfOwnOrgOnly() {
+        var row = new HashMap<String, Object>();
+        row.put("id", UUID.randomUUID());
+        row.put("full_name", "Ali Ben");
+        row.put("email", "ali@hydra.tn");
+        when(jdbc.queryForList(anyString(), eq(ORG))).thenReturn(List.of(row));
+
+        List<UserService.UserOption> options = service.userOptions(auth);
+
+        assertThat(options).hasSize(1);
+        assertThat(options.get(0).fullName()).isEqualTo("Ali Ben");
+        verify(jdbc).queryForList(contains("is_active = true"), eq(ORG));
     }
 }
