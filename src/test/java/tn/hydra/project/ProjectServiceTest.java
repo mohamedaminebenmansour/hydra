@@ -1,4 +1,4 @@
-package tn.hydra.project;
+﻿package tn.hydra.project;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,7 +52,13 @@ class ProjectServiceTest {
         admin.setId(UUID.randomUUID());
         admin.setOrgId(ORG);
         admin.setEmail("admin@hydra.tn");
+        admin.setIsOwner(true); // owner → companyWide access, keeps single-arg queries
         when(users.findByEmail("admin@hydra.tn")).thenReturn(Optional.of(admin));
+    }
+
+    private ProjectService.CreateProjectRequest req(String name, String code) {
+        return new ProjectService.CreateProjectRequest(name, code, null, null, null,
+                null, null, null, null, null, null, null);
     }
 
     // ── list ────────────────────────────────────────────────────────────
@@ -68,14 +74,14 @@ class ProjectServiceTest {
         assertThat(list.get(0).name()).isEqualTo("Chantier Nord");
         assertThat(list.get(0).code()).isEqualTo("CN");
         assertThat(list.get(0).status()).isEqualTo("ACTIF");
-        verify(jdbc).queryForList(contains("order by name"), eq(ORG));
+        verify(jdbc).queryForList(contains("order by p.name"), eq(ORG));
     }
 
     // ── create ──────────────────────────────────────────────────────────
 
     @Test
     void create_requiresName() {
-        assertThatThrownBy(() -> service.create(auth, "  ", "CN"))
+        assertThatThrownBy(() -> service.create(auth, req("  ", "CN")))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("obligatoire");
         verifyNoInteractions(audit);
@@ -83,38 +89,44 @@ class ProjectServiceTest {
 
     @Test
     void create_insertsActifProject_andAudits() {
-        when(jdbc.queryForObject(contains("insert into project"), eq(UUID.class),
-                any(), any(), any(), any())).thenReturn(PROJECT_ID);
+        stubCreate();
         when(jdbc.queryForList(anyString(), eq(PROJECT_ID), eq(ORG)))
                 .thenReturn(List.of(projectRow(PROJECT_ID, "Chantier Nord", "CN", "ACTIF")));
 
-        ProjectService.ProjectResponse created = service.create(auth, " Chantier Nord ", "CN");
+        ProjectService.ProjectResponse created =
+                service.create(auth, req(" Chantier Nord ", "CN"));
 
         assertThat(created.name()).isEqualTo("Chantier Nord");
         assertThat(created.status()).isEqualTo("ACTIF");
-        verify(jdbc).queryForObject(contains("'ACTIF'"), eq(UUID.class),
-                eq(ORG), eq("CN"), eq("Chantier Nord"), any());
+        verify(jdbc).queryForObject(contains("insert into project"), eq(UUID.class),
+                eq(ORG), eq("CN"), eq("Chantier Nord"),
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
         assertThat(auditDetails("PROJECT_CREATED")).contains("Chantier Nord");
     }
 
     @Test
     void create_convertsBlankCodeToNull() {
-        when(jdbc.queryForObject(contains("insert into project"), eq(UUID.class),
-                any(), any(), any(), any())).thenReturn(PROJECT_ID);
+        stubCreate();
         when(jdbc.queryForList(anyString(), eq(PROJECT_ID), eq(ORG)))
                 .thenReturn(List.of(projectRow(PROJECT_ID, "Chantier Nord", null, "ACTIF")));
 
-        service.create(auth, "Chantier Nord", "   ");
+        service.create(auth, req("Chantier Nord", "   "));
 
         verify(jdbc).queryForObject(contains("insert into project"), eq(UUID.class),
-                eq(ORG), isNull(), eq("Chantier Nord"), any());
+                eq(ORG), isNull(), eq("Chantier Nord"),
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     // ── update ──────────────────────────────────────────────────────────
 
+    private ProjectService.UpdateProjectRequest upd(String name, String code, String status) {
+        return new ProjectService.UpdateProjectRequest(name, code, status,
+                null, null, null, null, null, null, null, null, null);
+    }
+
     @Test
     void update_rejectsInvalidStatus() {
-        assertThatThrownBy(() -> service.update(auth, PROJECT_ID, "Chantier", "CN", "ARCHIVED"))
+        assertThatThrownBy(() -> service.update(auth, PROJECT_ID, upd("Chantier", "CN", "ARCHIVED")))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("Statut");
         verify(jdbc, never()).update(anyString(), any(), any(), any(), any());
@@ -125,10 +137,10 @@ class ProjectServiceTest {
         when(jdbc.queryForList("select id from project where id = ? and org_id = ?",
                 UUID.class, PROJECT_ID, ORG)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.update(auth, PROJECT_ID, "Chantier", "CN", "CLOTURE"))
+        assertThatThrownBy(() -> service.update(auth, PROJECT_ID, upd("Chantier", "CN", "CLOTURE")))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("introuvable");
-        verify(jdbc, never()).update(contains("update project"), any(), any(), any(), any());
+        verify(jdbc, never()).update(contains("update project set"), any(), any(), any(), any());
         verifyNoInteractions(audit);
     }
 
@@ -142,11 +154,13 @@ class ProjectServiceTest {
                 .thenReturn(List.of(projectRow(PROJECT_ID, "Chantier Nord", "CN", "CLOTURE")));
 
         ProjectService.ProjectResponse updated =
-                service.update(auth, PROJECT_ID, "Chantier Nord", "CN", "CLOTURE");
+                service.update(auth, PROJECT_ID, upd("Chantier Nord", "CN", "CLOTURE"));
 
         assertThat(updated.status()).isEqualTo("CLOTURE");
-        verify(jdbc).update(contains("update project set name = ?"),
-                eq("Chantier Nord"), eq("CN"), eq("CLOTURE"), eq(PROJECT_ID));
+        verify(jdbc).update(contains("update project set"),
+                eq("Chantier Nord"), eq("CN"), eq("CLOTURE"),
+                isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), isNull(),
+                eq("TND"), eq(PROJECT_ID));
         assertThat(auditDetails("PROJECT_UPDATED")).contains("CLOTURE");
     }
 
@@ -158,10 +172,63 @@ class ProjectServiceTest {
         assertThat(service.get(auth, PROJECT_ID)).isNull();
     }
 
+    // ── folder fallback / repair ─────────────────────────────────────────
+
+    @Test
+    void create_insertsSevenDefaultFolders_whenNoTemplates() {
+        stubCreate();
+        when(jdbc.queryForList(anyString(), eq(PROJECT_ID), eq(ORG)))
+                .thenReturn(List.of(projectRow(PROJECT_ID, "Chantier Nord", "CN", "ACTIF")));
+
+        service.create(auth, req("Chantier Nord", "CN"));
+
+        // hard fallback: 7 doc_folder inserts even though the template table is empty
+        verify(jdbc, times(7)).update(contains("insert into doc_folder"),
+                eq(PROJECT_ID), any(), any(), anyInt());
+    }
+
+    @Test
+    void listFolders_mapsCreatedAt_andOrdersBySort() {
+        var f = new HashMap<String, Object>();
+        f.put("id", UUID.randomUUID());
+        f.put("project_id", PROJECT_ID);
+        f.put("parent_id", null);
+        f.put("code", "01_ADMIN");
+        f.put("name", "Administratif");
+        f.put("sort_order", 1);
+        Instant created = Instant.now();
+        f.put("created_at", created);
+        when(jdbc.queryForList(contains("select id from project"), eq(UUID.class), eq(PROJECT_ID), eq(ORG)))
+                .thenReturn(List.of(PROJECT_ID));
+        when(jdbc.queryForList(contains("from doc_folder"), eq(PROJECT_ID)))
+                .thenReturn(List.of(f));
+
+        List<ProjectService.FolderResponse> folders = service.listFolders(auth, PROJECT_ID);
+
+        assertThat(folders).hasSize(1);
+        assertThat(folders.get(0).code()).isEqualTo("01_ADMIN");
+        assertThat(folders.get(0).sortOrder()).isEqualTo(1);
+        assertThat(folders.get(0).createdAt()).isEqualTo(created);
+    }
+    // ── helpers ─────────────────────────────────────────────────────────
+
+    private void stubCreate() {
+        when(jdbc.queryForObject(contains("insert into project"), eq(UUID.class),
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(PROJECT_ID);
+        // no folder templates (org) and none global → no folder inserts
+        when(jdbc.queryForList(contains("from doc_folder_template"), eq(ORG)))
+                .thenReturn(List.of());
+        when(jdbc.queryForList(contains("where org_id is null")))
+                .thenReturn(List.of());
+        // get() auto-repair counts folders; create's own folders are visible, so it won't re-clone
+        when(jdbc.queryForObject(contains("count(*)"), eq(Integer.class), any()))
+                .thenReturn(7);
+    }
+
     private String auditDetails(String action) {
         ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
         verify(audit).log(eq(action), eq("project"), any(), captor.capture());
         return captor.getValue();
     }
 }
-

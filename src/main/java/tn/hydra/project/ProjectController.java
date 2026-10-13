@@ -1,4 +1,4 @@
-package tn.hydra.project;
+﻿package tn.hydra.project;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -17,6 +17,9 @@ public class ProjectController {
     public ProjectController(ProjectService service) {
         this.service = service;
     }
+
+    public record AddMemberRequest(UUID userId, String projectRole, Boolean canUpload) {}
+    public record UpdateMemberRequest(String projectRole, Boolean canUpload) {}
 
     @GetMapping
     @PreAuthorize("hasAuthority('PERM_PROJECT_READ')")
@@ -43,7 +46,7 @@ public class ProjectController {
     @PreAuthorize("hasAuthority('PERM_PROJECT_WRITE')")
     public ProjectService.ProjectResponse create(@RequestBody ProjectService.CreateProjectRequest body,
                                                  Authentication auth) {
-        return service.create(auth, body.name(), body.code());
+        return service.create(auth, body);
     }
 
     @PutMapping("/{id}")
@@ -51,6 +54,54 @@ public class ProjectController {
     public ProjectService.ProjectResponse update(@PathVariable UUID id,
                                                  @RequestBody ProjectService.UpdateProjectRequest body,
                                                  Authentication auth) {
-        return service.update(auth, id, body.name(), body.code(), body.status());
+        return service.update(auth, id, body);
+    }
+
+    // ── folders ─────────────────────────────────────────────────────────
+
+    @GetMapping("/{id}/folders")
+    @PreAuthorize("hasAuthority('PERM_PROJECT_READ')")
+    public List<ProjectService.FolderResponse> folders(@PathVariable UUID id, Authentication auth) {
+        return service.listFolders(auth, id);
+    }
+
+    @PostMapping("/{id}/ensure-folders")
+    @PreAuthorize("hasAuthority('PERM_PROJECT_WRITE')")
+    public ResponseEntity<?> ensureFolders(@PathVariable UUID id, Authentication auth) {
+        service.ensureFolders(auth, id);
+        return ResponseEntity.ok().build();
+    }
+
+    // ── members ─────────────────────────────────────────────────────────
+
+    @GetMapping("/{id}/members")
+    @PreAuthorize("hasAuthority('PERM_PROJECT_READ')")
+    public List<ProjectService.MemberResponse> members(@PathVariable UUID id, Authentication auth) {
+        return service.listMembers(auth, id);
+    }
+
+    @PostMapping("/{id}/members")
+    @PreAuthorize("hasAnyAuthority('PERM_PROJECT_ASSIGN','PERM_PROJECT_WRITE')")
+    public ProjectService.MemberResponse addMember(@PathVariable UUID id,
+                                                   @RequestBody AddMemberRequest body,
+                                                   Authentication auth) {
+        return service.addMember(auth, id, body.userId(), body.projectRole(), body.canUpload());
+    }
+
+    @PutMapping("/{id}/members/{userId}")
+    @PreAuthorize("hasAnyAuthority('PERM_PROJECT_ASSIGN','PERM_PROJECT_WRITE')")
+    public ProjectService.MemberResponse updateMember(@PathVariable UUID id,
+                                                      @PathVariable UUID userId,
+                                                      @RequestBody UpdateMemberRequest body,
+                                                      Authentication auth) {
+        return service.updateMember(auth, id, userId, body.projectRole(), body.canUpload());
+    }
+
+    @DeleteMapping("/{id}/members/{userId}")
+    @PreAuthorize("hasAnyAuthority('PERM_PROJECT_ASSIGN','PERM_PROJECT_WRITE')")
+    public ResponseEntity<?> removeMember(@PathVariable UUID id, @PathVariable UUID userId,
+                                          Authentication auth) {
+        service.removeMember(auth, id, userId);
+        return ResponseEntity.ok().build();
     }
 }
