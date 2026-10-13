@@ -1,4 +1,4 @@
-﻿package tn.hydra.project;
+package tn.hydra.project;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
