@@ -36,7 +36,7 @@ class GlobalExceptionHandlerTest {
     @Test
     void malformedRequestBodyReturns400() {
         ResponseEntity<GlobalExceptionHandler.ApiError> res =
-                handler.badRequest(new Exception("unreadable"));
+                handler.malformed(new Exception("unreadable"));
 
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(res.getBody().code()).isEqualTo("BAD_REQUEST");

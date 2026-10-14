@@ -9,6 +9,10 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import tn.hydra.exception.BadRequestException;
+import tn.hydra.exception.FileStorageException;
+import tn.hydra.exception.ResourceNotFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -23,6 +27,31 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(e.getCode(), e.getMessage()));
     }
 
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ApiError> notFound(ResourceNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError(e.getCode(), e.getMessage()));
+    }
+
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<ApiError> badRequest(BadRequestException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError(e.getCode(), e.getMessage()));
+    }
+
+    @ExceptionHandler(FileStorageException.class)
+    public ResponseEntity<ApiError> fileStorage(FileStorageException e) {
+        HttpStatus status = "FILE_NOT_FOUND".equals(e.getCode())
+                ? HttpStatus.NOT_FOUND : HttpStatus.INTERNAL_SERVER_ERROR;
+        return ResponseEntity.status(status).body(new ApiError(e.getCode(), e.getMessage()));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiError> tooLarge(MaxUploadSizeExceededException e) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(new ApiError("FILE_TOO_LARGE", "Fichier trop volumineux"));
+    }
+
     // Method security denies must stay 403; without this the generic handler below
     // would turn them into 500.
     @ExceptionHandler(AccessDeniedException.class)
@@ -32,7 +61,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentNotValidException.class})
-    public ResponseEntity<ApiError> badRequest(Exception e) {
+    public ResponseEntity<ApiError> malformed(Exception e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError("BAD_REQUEST", "Requête invalide"));
     }

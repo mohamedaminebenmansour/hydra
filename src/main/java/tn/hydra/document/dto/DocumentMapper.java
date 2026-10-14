@@ -1,0 +1,35 @@
+package tn.hydra.document.dto;
+
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import tn.hydra.document.domain.Document;
+import tn.hydra.document.domain.DocumentRevision;
+import tn.hydra.document.domain.Tag;
+
+import java.util.List;
+
+/**
+ * Entity <-> DTO mapping. Derived fields (project from folder, ticket id null-safe,
+ * tag names, revision count, uploader/time) are wired with explicit mappings.
+ * Must be used within a transaction so lazy folder/project/ticket load correctly.
+ */
+@Mapper(componentModel = "spring")
+public interface DocumentMapper {
+
+    @Mapping(target = "folderId", source = "folder.id")
+    @Mapping(target = "projectId", source = "folder.project.id")
+    @Mapping(target = "ticketId",
+            expression = "java(document.getTicket() == null ? null : document.getTicket().getId())")
+    @Mapping(target = "tags",
+            expression = "java(document.getTags().stream().map(Tag::getName).sorted().toList())")
+    @Mapping(target = "revisionCount", expression = "java(document.getRevisions().size())")
+    DocumentResponse toResponse(Document document);
+
+    @Mapping(target = "uploadedBy", source = "createdBy")
+    @Mapping(target = "uploadedAt", source = "createdAt")
+    RevisionResponse toRevisionResponse(DocumentRevision revision);
+
+    List<RevisionResponse> toRevisionResponses(List<DocumentRevision> revisions);
+
+    TagResponse toTagResponse(Tag tag);
+}

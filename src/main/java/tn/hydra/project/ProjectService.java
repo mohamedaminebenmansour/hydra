@@ -37,11 +37,11 @@ public class ProjectService {
     private static final List<String[]> DEFAULT_TEMPLATES = List.of(
             new String[]{"01_ADMIN", "Administratif",       "1"},
             new String[]{"02_TECH",  "Technique",           "2"},
-            new String[]{"03_EXEC",  "Exécution",           "3"},
-            new String[]{"04_QUAL",  "Qualité / Réception", "4"},
+            new String[]{"03_EXEC",  "ExÃ©cution",           "3"},
+            new String[]{"04_QUAL",  "QualitÃ© / RÃ©ception", "4"},
             new String[]{"05_ACHAT", "Achats",              "5"},
             new String[]{"06_FIN",   "Finance",             "6"},
-            new String[]{"07_INT",   "Interne",             "7"});
+            new String[]{"07_HSE",   "HSE & Environnement", "7"});
     private final JdbcTemplate jdbc;
     private final AppUserRepository users;
     private final EventLogService audit;
@@ -50,7 +50,7 @@ public class ProjectService {
         this.jdbc = jdbc; this.users = users; this.audit = audit;
     }
 
-    // ══════════════════ RESPONSE SHAPE ══════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• RESPONSE SHAPE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     public record ProjectResponse(UUID id, String code, String name, String status,
                                   String clientName, String location, String governorate,
@@ -81,7 +81,7 @@ public class ProjectService {
                                        String projectType, String description,
                                        BigDecimal contractValue, String currency) {}
 
-    // ══════════════════ 1. LIST PROJECTS ══════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• 1. LIST PROJECTS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     public List<ProjectResponse> list(Authentication auth) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
@@ -120,7 +120,7 @@ public class ProjectService {
                 .toList();
     }
 
-    // ══════════════════ 2. GET ONE PROJECT (null → 404) ══════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• 2. GET ONE PROJECT (null â†’ 404) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     public ProjectResponse get(Authentication auth, UUID id) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
@@ -139,7 +139,7 @@ public class ProjectService {
         return toResponse(rows.get(0));
     }
 
-    // ══════════════════ 3. CREATE PROJECT ══════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• 3. CREATE PROJECT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     @Transactional
     public ProjectResponse create(Authentication auth, CreateProjectRequest body) {
@@ -200,7 +200,7 @@ public class ProjectService {
         return get(auth, id);
     }
 
-    // ══════════════════ 4. UPDATE PROJECT ══════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• 4. UPDATE PROJECT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     @Transactional
     public ProjectResponse update(Authentication auth, UUID id, UpdateProjectRequest body) {
@@ -235,7 +235,7 @@ public class ProjectService {
         return get(auth, id);
     }
 
-    // ══════════════════ 5. FOLDERS ══════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• 5. FOLDERS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     public List<FolderResponse> listFolders(Authentication auth, UUID projectId) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
@@ -249,7 +249,7 @@ public class ProjectService {
                 .map(ProjectService::toFolderResponse).toList();
     }
 
-    // ══════════════════ 6. MEMBERS ══════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• 6. MEMBERS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     public List<MemberResponse> listMembers(Authentication auth, UUID projectId) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
@@ -271,7 +271,7 @@ public class ProjectService {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
         requireManageable(auth, me, projectId);
         if (projectRole == null || !PROJECT_ROLES.contains(projectRole))
-            throw new BusinessRuleException("INVALID_ROLE", "Rôle de projet invalide");
+            throw new BusinessRuleException("INVALID_ROLE", "RÃ´le de projet invalide");
         boolean upload = canUpload == null || canUpload;
         AppUser target = activeUserInOrg(userId, me.getOrgId());
 
@@ -294,7 +294,7 @@ public class ProjectService {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
         requireManageable(auth, me, projectId);
         if (projectRole == null || !PROJECT_ROLES.contains(projectRole))
-            throw new BusinessRuleException("INVALID_ROLE", "Rôle de projet invalide");
+            throw new BusinessRuleException("INVALID_ROLE", "RÃ´le de projet invalide");
         boolean upload = canUpload == null || canUpload;
         AppUser target = activeUserInOrg(userId, me.getOrgId());
 
@@ -308,7 +308,7 @@ public class ProjectService {
                 && !"MANAGER".equals(projectRole)
                 && countManagers(projectId) <= 1)
             throw new BusinessRuleException("LAST_MANAGER",
-                    "Impossible de rétrograder le dernier chef de projet");
+                    "Impossible de rÃ©trograder le dernier chef de projet");
 
         jdbc.update("""
                 update project_member set project_role = ?, can_upload = ?
@@ -343,7 +343,7 @@ public class ProjectService {
                 "{\"userId\":\"" + target.getId() + "\"}");
     }
 
-    // ══════════════════ FOLDER TEMPLATES / REPAIR ══════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• FOLDER TEMPLATES / REPAIR â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     /**
      * Clones folder templates for a project (flat, parent_id null): org-specific if any
@@ -417,7 +417,7 @@ public class ProjectService {
                     "{\"folders\":" + inserted + "}");
         }
     }
-    // ══════════════════ HELPERS ══════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• HELPERS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     /** True if the user can see all org projects: owner, or holds PROJECT_MANAGE / PROJECT_READ. */
     private boolean companyWide(Authentication auth, AppUser me) {
@@ -455,7 +455,7 @@ public class ProjectService {
             authorized = !mgr.isEmpty();
         }
         if (!authorized)
-            throw new BusinessRuleException("FORBIDDEN", "Action non autorisée sur ce projet");
+            throw new BusinessRuleException("FORBIDDEN", "Action non autorisÃ©e sur ce projet");
     }
 
     private boolean projectExists(UUID projectId, UUID orgId) {

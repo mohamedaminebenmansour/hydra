@@ -75,14 +75,14 @@ class TicketServiceTest {
         return row;
     }
 
-    // ── create ──────────────────────────────────────────────────────────
+    // ---- create ----
 
     @Test
     void create_requiresTitleAndProject() {
-        assertThatThrownBy(() -> service.create(auth, " ", null, null, null, null, null, null))
+        assertThatThrownBy(() -> service.create(auth, " ", null, null, null, null, null, null, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("titre");
-        assertThatThrownBy(() -> service.create(auth, "Fuite", null, null, null, null, null, null))
+        assertThatThrownBy(() -> service.create(auth, "Fuite", null, null, null, null, null, null, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("projet");
         verifyNoInteractions(audit);
@@ -93,14 +93,14 @@ class TicketServiceTest {
         when(jdbc.queryForList("select status from project where id = ? and org_id = ?",
                 PROJECT_ID, ORG)).thenReturn(List.of());
         assertThatThrownBy(() -> service.create(auth, "Fuite", null, PROJECT_ID,
-                null, null, null, null))
+                null, null, null, null, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("Projet");
 
         when(jdbc.queryForList("select status from project where id = ? and org_id = ?",
                 PROJECT_ID, ORG)).thenReturn(List.of(Map.of("status", "CLOTURE")));
         assertThatThrownBy(() -> service.create(auth, "Fuite", null, PROJECT_ID,
-                null, null, null, null))
+                null, null, null, null, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("clôturé");
     }
@@ -110,7 +110,7 @@ class TicketServiceTest {
         when(jdbc.queryForList("select status from project where id = ? and org_id = ?",
                 PROJECT_ID, ORG)).thenReturn(List.of(Map.of("status", "ACTIF")));
         when(jdbc.queryForObject(contains("insert into ticket"), eq(UUID.class),
-                any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(TICKET_ID);
         var createdRow = ticketRow("OUVERT", null, PROJECT_ID);
         createdRow.put("priority", "HIGH");
@@ -118,13 +118,13 @@ class TicketServiceTest {
                 .thenReturn(List.of(createdRow));
 
         TicketService.TicketResponse created = service.create(auth, "Fuite", "regard",
-                PROJECT_ID, null, "HIGH", LocalDate.now(), LocalDate.now().plusDays(2));
+                PROJECT_ID, null, "HIGH", LocalDate.now(), LocalDate.now().plusDays(2), null);
 
         assertThat(created.status()).isEqualTo("OUVERT");
         assertThat(created.priority()).isEqualTo("HIGH");
         verify(jdbc).queryForObject(contains("'OUVERT'"), eq(UUID.class),
                 eq(ORG), eq("Fuite"), eq("regard"), eq("HIGH"),
-                eq(PROJECT_ID), isNull(), any(LocalDate.class), any(LocalDate.class), eq(me.getId()));
+                eq(PROJECT_ID), isNull(), any(LocalDate.class), any(LocalDate.class), eq(me.getId()), isNull());
 
         ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
         verify(audit).log(eq("TICKET_CREATED"), eq("ticket"), eq(TICKET_ID), captor.capture());
@@ -139,17 +139,17 @@ class TicketServiceTest {
         when(jdbc.queryForList("select id from app_user where id = ? and org_id = ?",
                 UUID.class, OTHER_USER, ORG)).thenReturn(List.of());
         assertThatThrownBy(() -> service.create(auth, "Fuite", null, PROJECT_ID,
-                OTHER_USER, null, null, null))
+                OTHER_USER, null, null, null, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("Utilisateur");
 
         assertThatThrownBy(() -> service.create(auth, "Fuite", null, PROJECT_ID,
-                null, "URGENT", null, null))
+                null, "URGENT", null, null, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("Priorité");
     }
 
-    // ── list filters ────────────────────────────────────────────────────
+    // ---- list filters ----
 
     @Test
     void list_alwaysScopesToOrg_andAddsMineFilter() {
@@ -176,7 +176,7 @@ class TicketServiceTest {
         assertThat(captor.getValue()).contains("HIGH");
     }
 
-    // ── update ──────────────────────────────────────────────────────────
+    // ---- update ----
 
     @Test
     void update_returnsNullForForeignTicket() {
@@ -184,7 +184,7 @@ class TicketServiceTest {
                 eq(TICKET_ID), eq(ORG))).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.update(auth, TICKET_ID, "Fuite", null,
-                null, null, null, null, null))
+                null, null, null, null, null, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("Ticket");
     }
@@ -198,14 +198,14 @@ class TicketServiceTest {
                 .thenReturn(List.of(ticketRow("OUVERT", null, PROJECT_ID)));
 
         service.update(auth, TICKET_ID, "Nouveau titre", null,
-                null, null, "LOW", null, null);
+                null, null, "LOW", null, null, null);
 
         verify(jdbc).update(contains("update ticket set updated_at = now(), title = ?, priority = ?"),
                 eq("Nouveau titre"), eq("LOW"), eq(TICKET_ID), eq(ORG));
         verify(audit).log(eq("TICKET_UPDATED"), eq("ticket"), eq(TICKET_ID), isNull());
     }
 
-    // ── transitions ─────────────────────────────────────────────────────
+    // ---- transitions ----
 
     private void stubTicket(String status, UUID assignedTo) {
         when(jdbc.queryForList(contains("from ticket where id = ? and org_id = ?"),
@@ -285,4 +285,3 @@ class TicketServiceTest {
         verifyNoInteractions(audit);
     }
 }
-
