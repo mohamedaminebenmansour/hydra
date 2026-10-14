@@ -174,7 +174,7 @@ public class ProjectService {
                 on conflict (project_id, user_id) do nothing
                 """, id, me.getId(), me.getId());
 
-        // e) insert additional members (MEMBER) if same org and active
+        // e) insert additional members (ENGINEER) if same org and active
         if (body.memberUserIds() != null) {
             for (UUID userId : body.memberUserIds()) {
                 if (userId == null || userId.equals(me.getId())) continue;
@@ -185,7 +185,7 @@ public class ProjectService {
                 if (active.isEmpty()) continue;
                 jdbc.update("""
                         insert into project_member (project_id, user_id, project_role, can_upload, created_by)
-                        values (?, ?, 'MEMBER', true, ?)
+                        values (?, ?, 'ENGINEER', true, ?)
                         on conflict (project_id, user_id) do nothing
                         """, id, userId, me.getId());
             }
@@ -322,7 +322,7 @@ public class ProjectService {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
         requireManageable(auth, me, projectId);
         if (projectRole == null || !PROJECT_ROLES.contains(projectRole))
-            throw new BusinessRuleException("INVALID_ROLE", "RÃ´le de projet invalide");
+            throw new BusinessRuleException("INVALID_ROLE", "Rôle de projet invalide");
         boolean upload = canUpload == null || canUpload;
         AppUser target = activeUserInOrg(userId, me.getOrgId());
 
@@ -331,12 +331,13 @@ public class ProjectService {
                 projectId, target.getId());
         if (rows.isEmpty())
             throw new BusinessRuleException("MEMBER_NOT_FOUND", "Membre introuvable");
-        // cannot demote the last MANAGER
-        if ("MANAGER".equals(rows.get(0).get("project_role"))
-                && !"MANAGER".equals(projectRole)
-                && countManagers(projectId) <= 1)
+        // cannot demote the last ADMIN/MANAGER
+        String currentRole = (String) rows.get(0).get("project_role");
+        if (("ADMIN".equals(currentRole) || "MANAGER".equals(currentRole))
+                && !"ADMIN".equals(projectRole) && !"MANAGER".equals(projectRole)
+                && countLeaders(projectId) <= 1)
             throw new BusinessRuleException("LAST_MANAGER",
-                    "Impossible de rÃ©trograder le dernier chef de projet");
+                    "Impossible de rétrograder le dernier chef de projet");
 
         jdbc.update("""
                 update project_member set project_role = ?, can_upload = ?
@@ -359,9 +360,10 @@ public class ProjectService {
                 projectId, target.getId());
         if (rows.isEmpty())
             throw new BusinessRuleException("MEMBER_NOT_FOUND", "Membre introuvable");
-        boolean isManager = "MANAGER".equals(rows.get(0).get("project_role"));
-        // cannot remove the last MANAGER (also covers self-removal when sole manager)
-        if (isManager && countManagers(projectId) <= 1)
+        String role = (String) rows.get(0).get("project_role");
+        boolean isLeader = "ADMIN".equals(role) || "MANAGER".equals(role);
+        // cannot remove the last ADMIN/MANAGER (also covers self-removal when sole leader)
+        if (isLeader && countLeaders(projectId) <= 1)
             throw new BusinessRuleException("LAST_MANAGER",
                     "Impossible de supprimer le dernier chef de projet");
 
@@ -467,7 +469,7 @@ public class ProjectService {
             throw new BusinessRuleException("PROJECT_NOT_FOUND", "Projet introuvable");
     }
 
-    /** Owner/admin OR project MANAGER OR holds PROJECT_ASSIGN/PROJECT_WRITE, else FORBIDDEN. */
+    /** Owner/admin OR project ADMIN/MANAGER OR holds PROJECT_ASSIGN/PROJECT_WRITE, else FORBIDDEN. */
     private void requireManageable(Authentication auth, AppUser me, UUID projectId) {
         if (!projectExists(projectId, me.getOrgId()))
             throw new BusinessRuleException("PROJECT_NOT_FOUND", "Projet introuvable");
@@ -478,7 +480,7 @@ public class ProjectService {
         if (!authorized) {
             List<UUID> mgr = jdbc.queryForList("""
                     select 1 from project_member
-                    where project_id = ? and user_id = ? and project_role = 'MANAGER'
+                    where project_id = ? and user_id = ? and project_role in ('ADMIN','MANAGER')
                     """, UUID.class, projectId, me.getId());
             authorized = !mgr.isEmpty();
         }
@@ -492,10 +494,10 @@ public class ProjectService {
                 .isEmpty();
     }
 
-    private int countManagers(UUID projectId) {
+    private int countLeaders(UUID projectId) {
         Integer n = jdbc.queryForObject("""
                 select count(*) from project_member
-                where project_id = ? and project_role = 'MANAGER'
+                where project_id = ? and project_role in ('ADMIN','MANAGER')
                 """, Integer.class, projectId);
         return n == null ? 0 : n;
     }
