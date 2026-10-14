@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.annotations.UuidGenerator;
 import tn.hydra.ticket.Ticket;
 
 import java.time.Instant;
@@ -29,6 +30,7 @@ import java.util.UUID;
 public class Document extends Auditable {
 
     @Id
+    @UuidGenerator
     private UUID id;
 
     /** Tenant scope (denormalized for fast org-wide queries). */

@@ -2,6 +2,7 @@ package tn.hydra.common;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -58,6 +59,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> accessDenied(AccessDeniedException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(new ApiError("FORBIDDEN", "Vous n'avez pas cette permission"));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> dataIntegrity(DataIntegrityViolationException e) {
+        String msg = e.getMostSpecificCause() != null ? e.getMostSpecificCause().getMessage() : e.getMessage();
+        log.warn("Data integrity violation: {}", msg);
+        // Common case: unique constraint on (document_id, rev_label) or FK violation
+        if (msg != null && (msg.contains("unique") || msg.contains("duplicate") || msg.contains("rev_label"))) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new ApiError("REV_EXISTS", "Cette révision existe déjà"));
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("DATA_INTEGRITY", "Violation de contrainte de données"));
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentNotValidException.class})

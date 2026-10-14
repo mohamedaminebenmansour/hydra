@@ -6,6 +6,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 import tn.hydra.exception.FileStorageException;
 
+import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,8 +24,17 @@ public class LocalFileStorage implements FileStorage {
 
     private final Path root;
 
-    public LocalFileStorage(@Value("${hydra.storage.root:./data/files}") String rootDir) {
+    public LocalFileStorage(@Value("${hydra.storage.root:${HYDRA_STORAGE_ROOT:./data/files}}") String rootDir) {
         this.root = Paths.get(rootDir).toAbsolutePath().normalize();
+    }
+
+    @PostConstruct
+    void init() {
+        try {
+            Files.createDirectories(this.root);
+        } catch (IOException e) {
+            throw new FileStorageException("STORAGE_INIT_FAILED", "Impossible de créer le répertoire de stockage: " + root, e);
+        }
     }
 
     @Override
@@ -77,7 +87,12 @@ public class LocalFileStorage implements FileStorage {
     }
 
     private Path resolve(String key) {
-        return root.resolve(key).normalize();
+        Path target = root.resolve(key).normalize();
+        // Path traversal protection: ensure target is under root
+        if (!target.startsWith(root)) {
+            throw new FileStorageException("INVALID_PATH", "Chemin de stockage invalide");
+        }
+        return target;
     }
 
     private String sha256(byte[] data) {

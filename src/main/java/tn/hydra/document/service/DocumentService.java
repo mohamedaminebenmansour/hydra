@@ -32,9 +32,9 @@ import tn.hydra.user.AppUser;
 import tn.hydra.user.AppUserRepository;
 
 import java.io.IOException;
-import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -52,6 +52,12 @@ public class DocumentService {
     private final FileStorage storage;
     private final FilenameBuilder filenameBuilder;
     private final JdbcTemplate jdbc;
+
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+            "pdf", "doc", "docx", "xls", "xlsx",
+            "png", "jpg", "jpeg", "gif", "webp",
+            "dwg", "dxf", "zip", "txt", "csv"
+    );
 
     public DocumentService(DocumentRepository documents, DocFolderRepository folders,
                            TagRepository tags, TicketRepository ticketRepo,
@@ -74,6 +80,14 @@ public class DocumentService {
             throw new BadRequestException("REQUIRED_FIELDS", "Le titre est obligatoire");
         if (file == null || file.isEmpty())
             throw new BadRequestException("FILE_REQUIRED", "Un fichier est requis");
+
+        // File type validation by extension (MIME is unreliable)
+        String ext = FilenameBuilder.extension(file.getOriginalFilename());
+        if (!ALLOWED_EXTENSIONS.contains(ext.toLowerCase())) {
+            throw new BadRequestException("FILE_TYPE_NOT_ALLOWED",
+                    "Type de fichier non autorisé. Formats acceptés : PDF, Word, Excel, images, DWG/DXF, ZIP");
+        }
+
         // Business rule: the document must live in a folder of a project of the caller's org.
         DocFolder folder = folders.findByIdAndProject_OrgId(folderId, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("FOLDER_NOT_FOUND", "Dossier introuvable"));
@@ -88,11 +102,8 @@ public class DocumentService {
 
         String revLabel = (revision == null || revision.isBlank()) ? "Rev.0" : revision.trim();
         String projectCode = folder.getProject().getCode();
-        String fileName = filenameBuilder.build(projectCode, docType, title.trim(), revLabel,
-                file.getOriginalFilename());
-        String key = "org/" + me.getOrgId() + "/project/" + folder.getProject().getId()
-                + "/" + folder.getCode() + "/doc-tmp/" + revLabel.replace(' ', '_') + "__" + fileName;
 
+        // Create document FIRST (without revision) to get generated ID
         Document doc = new Document();
         doc.setOrgId(me.getOrgId());
         doc.setFolder(folder);
@@ -104,23 +115,29 @@ public class DocumentService {
         doc.setTicket(loadTicket(ticketId, me.getOrgId()));
         applyTags(doc, tagNames, me);
 
-        DocumentRevision rev = new DocumentRevision();
-        rev.setRevLabel(revLabel);
-        rev.setFileName(fileName);
-        rev.setMimeType(file.getContentType());
-        rev.setChangeNote(null);
-        doc.addRevision(rev); // sets currentRev
+        documents.save(doc); // assigns id via @UuidGenerator
 
-        documents.save(doc); // assigns id, cascades the revision
-        // rebuild the storage key now that we have the document id, then store the bytes
+        // Now we have doc.getId() - build final storage key and store file
+        String fileName = filenameBuilder.build(projectCode, docType, title.trim(), revLabel,
+                file.getOriginalFilename());
         String finalKey = "org/" + me.getOrgId() + "/project/" + folder.getProject().getId()
                 + "/" + folder.getCode() + "/doc/" + doc.getId() + "/"
                 + revLabel.replace(' ', '_') + "__" + fileName;
+
         StoredFile stored = storage.save(finalKey, bytes, file.getContentType());
+
+        // Create revision with storage key (NEVER null)
+        DocumentRevision rev = new DocumentRevision();
+        rev.setRevLabel(revLabel);
+        rev.setFileName(fileName);
         rev.setStorageKey(stored.key());
+        rev.setMimeType(file.getContentType());
         rev.setSizeBytes(stored.size());
         rev.setChecksumSha256(stored.checksumSha256());
-        documents.save(doc);
+        rev.setChangeNote(null);
+        doc.addRevision(rev); // sets currentRev
+
+        documents.save(doc); // cascade persists the revision
 
         audit.log("DOCUMENT_UPLOADED", "document", doc.getId(),
                 "{\"reference\":\"" + esc(doc.getReference()) + "\",\"rev\":\"" + revLabel + "\"}");
