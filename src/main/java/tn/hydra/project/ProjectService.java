@@ -21,7 +21,7 @@ import java.util.UUID;
 public class ProjectService {
 
     private static final Set<String> STATUSES = Set.of("ACTIF", "CLOTURE");
-    private static final Set<String> PROJECT_ROLES = Set.of("MANAGER", "MEMBER", "VIEWER");
+    private static final Set<String> PROJECT_ROLES = Set.of("ADMIN", "MANAGER", "ENGINEER", "VIEWER");
 
     /** Column list shared by list/get so member_count is computed the same way everywhere. */
     private static final String PROJECT_COLUMNS = """
@@ -263,6 +263,34 @@ public class ProjectService {
                 order by u.full_name
                 """, projectId).stream()
                 .map(ProjectService::toMemberResponse).toList();
+    }
+
+    /** Caller's effective rights on a project (drives UI gating, e.g. upload button). */
+    public record MyPermissionsResponse(boolean isMember, String projectRole, boolean canUpload) {}
+
+    public MyPermissionsResponse myPermissions(Authentication auth, UUID projectId) {
+        AppUser me = users.findByEmail(auth.getName()).orElseThrow();
+        if (!projectExists(projectId, me.getOrgId()))
+            throw new BusinessRuleException("PROJECT_NOT_FOUND", "Projet introuvable");
+        // Owner can always act.
+        if (Boolean.TRUE.equals(me.getIsOwner()))
+            return new MyPermissionsResponse(true, "ADMIN", true);
+
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                select project_role, can_upload
+                from project_member
+                where project_id = ? and user_id = ?
+                """, projectId, me.getId());
+        if (rows.isEmpty()) {
+            // Not a member: company-wide readers can still see, but never upload.
+            boolean readOnly = companyWide(auth, me);
+            return new MyPermissionsResponse(readOnly, readOnly ? "VIEWER" : null, false);
+        }
+        Map<String, Object> row = rows.get(0);
+        String role = (String) row.get("project_role");
+        boolean canUpload = Boolean.TRUE.equals(row.get("can_upload"))
+                || "ADMIN".equals(role) || "MANAGER".equals(role);
+        return new MyPermissionsResponse(true, role, canUpload);
     }
 
     @Transactional

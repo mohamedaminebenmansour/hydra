@@ -8,6 +8,7 @@ import tn.hydra.ticket.TicketService.TicketResponse;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -66,33 +67,27 @@ public class TicketController {
         return t == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(t);
     }
 
-    // Status flow: OUVERT → EN_COURS → (EN_ATTENTE ↔ EN_COURS) → RESOLU.
-    // The assignee or a PERM_TICKET_WRITE holder may drive start/wait/resume.
-    @PostMapping("/{id}/start")
-    @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
-    public ResponseEntity<?> start(@PathVariable UUID id, Authentication auth) {
-        service.start(auth, id);
-        return ResponseEntity.ok().build();
-    }
-
-    @PostMapping("/{id}/wait")
-    @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
-    public ResponseEntity<?> wait(@PathVariable UUID id, Authentication auth) {
-        service.wait_(auth, id);
-        return ResponseEntity.ok().build();
-    }
-
-    @PostMapping("/{id}/resume")
-    @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
-    public ResponseEntity<?> resume(@PathVariable UUID id, Authentication auth) {
-        service.resume(auth, id);
-        return ResponseEntity.ok().build();
-    }
-
-    @PostMapping("/{id}/close")
+    // Status flow: DRAFT → IN_REVIEW → APPROVED → IFC → AS_BUILT (workflow).
+    // Moves a ticket to the given status if the transition is allowed.
+    @PostMapping("/{id}/status")
     @PreAuthorize("hasAuthority('PERM_TICKET_WRITE')")
-    public ResponseEntity<?> close(@PathVariable UUID id, Authentication auth) {
-        service.close(auth, id);
-        return ResponseEntity.ok().build();
+    public ResponseEntity<?> setStatus(@PathVariable UUID id,
+                                       @RequestParam String status,
+                                       Authentication auth) {
+        return ResponseEntity.ok(service.setStatus(auth, id, status));
+    }
+
+    /** Allowed next statuses for the current status (empty when terminal). */
+    @GetMapping("/{id}/transitions")
+    @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
+    public List<String> transitions(@PathVariable UUID id, Authentication auth) {
+        return service.availableTransitions(auth, id);
+    }
+
+    // ── linked documents ──────────────────────────────────────────────
+    @GetMapping("/{id}/documents")
+    @PreAuthorize("hasAuthority('PERM_TICKET_READ')")
+    public List<Map<String, Object>> documents(@PathVariable UUID id, Authentication auth) {
+        return service.documentsOf(auth, id);
     }
 }

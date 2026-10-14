@@ -2,6 +2,7 @@ package tn.hydra.document.service;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,16 +51,17 @@ public class DocumentService {
     private final ReferenceGenerator references;
     private final FileStorage storage;
     private final FilenameBuilder filenameBuilder;
+    private final JdbcTemplate jdbc;
 
     public DocumentService(DocumentRepository documents, DocFolderRepository folders,
                            TagRepository tags, TicketRepository ticketRepo,
                            AppUserRepository users, DocumentMapper mapper, EventLogService audit,
                            ReferenceGenerator references, FileStorage storage,
-                           FilenameBuilder filenameBuilder) {
+                           FilenameBuilder filenameBuilder, JdbcTemplate jdbc) {
         this.documents = documents; this.folders = folders; this.tags = tags;
         this.ticketRepo = ticketRepo; this.users = users; this.mapper = mapper;
         this.audit = audit; this.references = references; this.storage = storage;
-        this.filenameBuilder = filenameBuilder;
+        this.filenameBuilder = filenameBuilder; this.jdbc = jdbc;
     }
 
     // ── combined upload: create Document + first revision in one call ─────
@@ -75,6 +77,7 @@ public class DocumentService {
         // Business rule: the document must live in a folder of a project of the caller's org.
         DocFolder folder = folders.findByIdAndProject_OrgId(folderId, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("FOLDER_NOT_FOUND", "Dossier introuvable"));
+        assertCanUpload(auth, me, folder.getProject().getId());
 
         byte[] bytes;
         try {
@@ -130,6 +133,7 @@ public class DocumentService {
         AppUser me = currentUser(auth);
         DocFolder folder = folders.findByIdAndProject_OrgId(folderId, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("FOLDER_NOT_FOUND", "Dossier introuvable"));
+        assertCanUpload(auth, me, folder.getProject().getId());
 
         Document doc = new Document();
         doc.setOrgId(me.getOrgId());
@@ -226,6 +230,25 @@ public class DocumentService {
     // ── helpers ──────────────────────────────────────────────────────────
     private AppUser currentUser(Authentication auth) {
         return users.findByEmail(auth.getName()).orElseThrow();
+    }
+
+    /**
+     * Per-project upload gate on top of the global PERM_DOCUMENT_UPLOAD (enforced by
+     * @PreAuthorize). The org owner may always upload. Otherwise the caller must be a
+     * project member with can_upload = true, or hold an ADMIN / MANAGER project role.
+     */
+    void assertCanUpload(Authentication auth, AppUser me, UUID projectId) {
+        if (Boolean.TRUE.equals(me.getIsOwner())) return;
+
+        Boolean allowed = jdbc.query("""
+                select (can_upload = true or project_role in ('ADMIN','MANAGER')) as ok
+                from project_member
+                where project_id = ? and user_id = ?
+                """, rs -> rs.next() ? rs.getBoolean("ok") : false, projectId, me.getId());
+
+        if (!Boolean.TRUE.equals(allowed))
+            throw new tn.hydra.common.BusinessRuleException("UPLOAD_NOT_ALLOWED",
+                    "Vous n'avez pas le droit de téléverser dans ce projet");
     }
 
     private Ticket loadTicket(UUID ticketId, UUID orgId) {

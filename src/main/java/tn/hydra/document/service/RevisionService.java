@@ -31,12 +31,15 @@ public class RevisionService {
     private final FileStorage storage;
     private final FilenameBuilder filenameBuilder;
     private final EventLogService audit;
+    private final DocumentService documentService;
 
     public RevisionService(DocumentRepository documents, DocumentRevisionRepository revisions,
                            AppUserRepository users, DocumentMapper mapper, FileStorage storage,
-                           FilenameBuilder filenameBuilder, EventLogService audit) {
+                           FilenameBuilder filenameBuilder, EventLogService audit,
+                           DocumentService documentService) {
         this.documents = documents; this.revisions = revisions; this.users = users;
         this.mapper = mapper; this.storage = storage; this.filenameBuilder = filenameBuilder; this.audit = audit;
+        this.documentService = documentService;
     }
 
     public List<RevisionResponse> list(Authentication auth, UUID documentId) {
@@ -52,6 +55,7 @@ public class RevisionService {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
         Document doc = documents.findByIdAndOrgId(documentId, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
+        documentService.assertCanUpload(auth, me, doc.getFolder().getProject().getId());
         if (file == null || file.isEmpty())
             throw new BadRequestException("FILE_REQUIRED", "Un fichier est requis");
 

@@ -80,6 +80,13 @@ public class ProjectController {
         return service.listMembers(auth, id);
     }
 
+    /** Caller's effective rights on the project (drives UI gating, e.g. upload button). */
+    @GetMapping("/{id}/me")
+    @PreAuthorize("hasAnyAuthority('PERM_PROJECT_READ','PERM_DOCUMENT_READ')")
+    public ProjectService.MyPermissionsResponse me(@PathVariable UUID id, Authentication auth) {
+        return service.myPermissions(auth, id);
+    }
+
     @PostMapping("/{id}/members")
     @PreAuthorize("hasAnyAuthority('PERM_PROJECT_ASSIGN','PERM_PROJECT_WRITE')")
     public ProjectService.MemberResponse addMember(@PathVariable UUID id,

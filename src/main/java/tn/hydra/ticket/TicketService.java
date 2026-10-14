@@ -98,7 +98,7 @@ public class TicketService {
         UUID id = jdbc.queryForObject("""
                 insert into ticket (org_id, title, description, status, priority,
                                     project_id, assigned_to, start_at, due_at, created_by, document_id)
-                values (?, ?, ?, 'OUVERT', ?, ?, ?, ?, ?, ?, ?) returning id
+                values (?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?) returning id
                 """, UUID.class, me.getOrgId(), title.trim(), description,
                 prio, projectId, assignedToId, startAt, dueAt, me.getId(), documentId);
 
@@ -145,57 +145,70 @@ public class TicketService {
         return get(auth, id);
     }
 
-    // ══════════════════ 5. STATUS TRANSITIONS ══════════════════
-
-    public void start(Authentication auth, UUID id) {
-        transition(auth, id, Set.of("OUVERT"), "EN_COURS", true, "TICKET_STATUS_CHANGED");
-    }
-
-    public void wait_(Authentication auth, UUID id) {
-        transition(auth, id, Set.of("EN_COURS"), "EN_ATTENTE", true, "TICKET_STATUS_CHANGED");
-    }
-
-    public void resume(Authentication auth, UUID id) {
-        transition(auth, id, Set.of("EN_ATTENTE"), "EN_COURS", true, "TICKET_STATUS_CHANGED");
-    }
-
-    public void close(Authentication auth, UUID id) {
-        transition(auth, id, Set.of("OUVERT", "EN_COURS", "EN_ATTENTE"), "RESOLU",
-                false, "TICKET_CLOSED");
-    }
+    // ══════════════════ 5. STATUS TRANSITIONS (workflow) ══════════════════
 
     /**
-     * Shared transition engine. {@code assigneeOrWriter} = only the assignee or a
-     * PERM_TICKET_WRITE holder may move the ticket; for {@code close} the endpoint
-     * itself already required PERM_TICKET_WRITE, so nobody is excluded.
+     * Move a ticket along the transmittal workflow
+     * (DRAFT → IN_REVIEW → APPROVED → IFC → AS_BUILT). The target must be an
+     * allowed transition from the current status.
      */
     @Transactional
-    public void transition(Authentication auth, UUID id, Set<String> fromStatuses, String toStatus,
-                           boolean assigneeOrWriter, String auditAction) {
+    public TicketResponse setStatus(Authentication auth, UUID id, String targetCode) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
         Map<String, Object> t = requireTicket(me, id);
 
-        if (!fromStatuses.contains(t.get("status")))
-            throw new BusinessRuleException("INVALID_STATUS",
-                    "Transition non autorisée : " + t.get("status") + " → " + toStatus);
-        if (assigneeOrWriter && !isAssigneeOrWriter(auth, me, t))
-            throw new BusinessRuleException("NOT_ASSIGNED",
-                    "Seul l'assigné ou un détenteur de PERM_TICKET_WRITE peut déplacer ce ticket");
+        TicketStatus current = TicketStatus.from((String) t.get("status"));
+        TicketStatus target;
+        try {
+            target = TicketStatus.from(targetCode);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessRuleException("INVALID_STATUS", "Statut inconnu : " + targetCode);
+        }
 
-        if ("RESOLU".equals(toStatus)) {
+        if (!current.allowedTransitions().contains(target))
+            throw new BusinessRuleException("INVALID_STATUS",
+                    "Transition non autorisée : " + current.name() + " → " + target.name());
+
+        boolean terminal = (target == TicketStatus.AS_BUILT);
+        if (terminal) {
             jdbc.update("""
                     update ticket set status = ?, resolved_at = now(), resolved_by = ?,
                                       updated_at = now()
                     where id = ? and org_id = ?
-                    """, toStatus, me.getId(), id, me.getOrgId());
+                    """, target.name(), me.getId(), id, me.getOrgId());
         } else {
             jdbc.update("""
                     update ticket set status = ?, updated_at = now()
                     where id = ? and org_id = ?
-                    """, toStatus, id, me.getOrgId());
+                    """, target.name(), id, me.getOrgId());
         }
-        audit.log(auditAction, "ticket", id,
-                "{\"from\":\"" + t.get("status") + "\",\"to\":\"" + toStatus + "\"}");
+        audit.log("TICKET_STATUS_CHANGED", "ticket", id,
+                "{\"from\":\"" + current.name() + "\",\"to\":\"" + target.name() + "\"}");
+        return get(auth, id);
+    }
+
+    /** Possible next statuses for the UI (empty when terminal). */
+    public List<String> availableTransitions(Authentication auth, UUID id) {
+        AppUser me = users.findByEmail(auth.getName()).orElseThrow();
+        Map<String, Object> t = requireTicket(me, id);
+        return TicketStatus.from((String) t.get("status"))
+                .allowedTransitions().stream().map(Enum::name).sorted().toList();
+    }
+
+    // ══════════════════ 6. LINKED DOCUMENTS ══════════════════
+
+    /** Documents linked to this ticket (via document.ticket_id). */
+    public List<Map<String, Object>> documentsOf(Authentication auth, UUID ticketId) {
+        AppUser me = users.findByEmail(auth.getName()).orElseThrow();
+        requireTicket(me, ticketId);
+        return jdbc.queryForList("""
+                select d.id, d.reference, d.title, d.doc_type, d.current_rev, d.status,
+                       d.created_at, d.created_by, u.full_name as created_by_name
+                from document d
+                left join app_user u on u.id = d.created_by
+                where d.ticket_id = ? and d.org_id = ? and d.deleted_at is null
+                order by d.reference
+                """, ticketId, me.getOrgId());
     }
 
     // ══════════════════ VALIDATION HELPERS ══════════════════
@@ -231,12 +244,6 @@ public class TicketService {
         if (!PRIORITIES.contains(priority))
             throw new BusinessRuleException("INVALID_PRIORITY", "Priorité invalide");
         return priority;
-    }
-
-    private boolean isAssigneeOrWriter(Authentication auth, AppUser me, Map<String, Object> ticket) {
-        if (me.getId().equals(ticket.get("assigned_to"))) return true;
-        return auth.getAuthorities().stream()
-                .anyMatch(a -> "PERM_TICKET_WRITE".equals(a.getAuthority()));
     }
 
     // ══════════════════ HELPERS ══════════════════
