@@ -10,6 +10,7 @@ import java.util.UUID;
 /** Create a document (metadata only; the first file is uploaded as Rev.0 afterwards). */
 public record CreateDocumentRequest(
         @NotBlank String title,
+        String description,
         @NotNull DocType docType,
         List<String> tagNames,
         UUID ticketId) {}

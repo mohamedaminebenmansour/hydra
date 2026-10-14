@@ -1,5 +1,6 @@
 package tn.hydra.document.service;
 
+import org.springframework.stereotype.Component;
 import tn.hydra.document.domain.DocType;
 
 import java.text.Normalizer;
@@ -9,6 +10,7 @@ import java.util.Locale;
  * Builds the mandatory file name: PRJ-<CODE>_<TYPE>_<Description>_<RevXX>.<ext>
  * The server owns the final name so conventions stay consistent.
  */
+@Component
 public class FilenameBuilder {
 
     /** Upper-cased, accent-stripped, non-alphanumeric collapsed to single dashes. */

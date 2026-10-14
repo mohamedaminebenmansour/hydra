@@ -9,10 +9,12 @@ import java.util.UUID;
 
 public record DocumentResponse(
         UUID id,
+        String reference,
         UUID projectId,
         UUID folderId,
         UUID ticketId,
         String title,
+        String description,
         DocType docType,
         String currentRev,
         DocStatus status,

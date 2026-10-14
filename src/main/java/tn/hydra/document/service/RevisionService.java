@@ -48,7 +48,7 @@ public class RevisionService {
 
     @Transactional
     public RevisionResponse uploadNewRevision(Authentication auth, UUID documentId,
-                                              MultipartFile file, String changeNote) {
+                                              MultipartFile file, String changeNote, String revision) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
         Document doc = documents.findByIdAndOrgId(documentId, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
@@ -62,7 +62,7 @@ public class RevisionService {
             throw new BadRequestException("FILE_UNREADABLE", "Fichier illisible");
         }
 
-        String revLabel = nextRevLabel(documentId);
+        String revLabel = resolveRevLabel(documentId, revision);
         DocFolder folder = doc.getFolder();
         String projectCode = folder.getProject().getCode();
         String fileName = filenameBuilder.build(projectCode, doc.getDocType(),
@@ -94,15 +94,26 @@ public class RevisionService {
         assertReadable(documentId, me.getOrgId());
         DocumentRevision rev = revisions.findById(revisionId)
                 .filter(r -> r.getDocument().getId().equals(documentId))
-                .orElseThrow(() -> new ResourceNotFoundException("REVISION_NOT_FOUND", "Révision introuvable"));
+                .orElseThrow(() -> new ResourceNotFoundException("REVISION_NOT_FOUND", "RÃƒÂ©vision introuvable"));
         return new DownloadFile(storage.loadAsResource(rev.getStorageKey()),
                 rev.getFileName(), rev.getMimeType());
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     private void assertReadable(UUID documentId, UUID orgId) {
         if (documents.findByIdAndOrgId(documentId, orgId).isEmpty())
             throw new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable");
+    }
+
+    /** Explicit revision if provided (validated unique), else auto-bumped. */
+    private String resolveRevLabel(UUID documentId, String revision) {
+        if (revision != null && !revision.isBlank()) {
+            String label = revision.trim();
+            if (revisions.findByDocument_IdAndRevLabel(documentId, label).isPresent())
+                throw new BadRequestException("REV_EXISTS", "Cette révision existe déjà");
+            return label;
+        }
+        return nextRevLabel(documentId);
     }
 
     /** Rev.0 -> Rev.A -> Rev.B ... ; first revision is Rev.0. */
@@ -118,7 +129,7 @@ public class RevisionService {
         char last = cur.charAt(cur.length() - 1);
         if (Character.isLetter(last)) {
             char upper = Character.toUpperCase(last);
-            if (upper == 'Z') throw new BadRequestException("REV_LIMIT", "Limite de révision atteinte");
+            if (upper == 'Z') throw new BadRequestException("REV_LIMIT", "Limite de rÃƒÂ©vision atteinte");
             return "Rev." + (char) (upper + 1);
         }
         return "Rev.A";

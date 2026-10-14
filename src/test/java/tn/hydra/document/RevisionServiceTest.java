@@ -94,7 +94,7 @@ class RevisionServiceTest {
         when(revisions.findTopByDocument_IdOrderByCreatedAtDesc(DOC)).thenReturn(Optional.empty());
 
         service.uploadNewRevision(auth, DOC,
-                new MockMultipartFile("file", "a.pdf", "application/pdf", "abc".getBytes()), null);
+                new MockMultipartFile("file", "a.pdf", "application/pdf", "abc".getBytes()), null, null);
 
         ArgumentCaptor<Document> cap = ArgumentCaptor.forClass(Document.class);
         verify(documents).save(cap.capture());
@@ -111,7 +111,7 @@ class RevisionServiceTest {
         when(revisions.findTopByDocument_IdOrderByCreatedAtDesc(DOC)).thenReturn(Optional.of(last));
 
         service.uploadNewRevision(auth, DOC,
-                new MockMultipartFile("file", "b.pdf", "application/pdf", "abc".getBytes()), "suite APD");
+                new MockMultipartFile("file", "b.pdf", "application/pdf", "abc".getBytes()), "suite APD", null);
 
         ArgumentCaptor<Document> cap = ArgumentCaptor.forClass(Document.class);
         verify(documents).save(cap.capture());

@@ -42,7 +42,12 @@ public class Document extends Auditable {
     @JoinColumn(name = "ticket_id")
     private Ticket ticket;
 
+    /** Unique internal reference (see ReferenceGenerator), e.g. SONEDE-01-00007. */
+    private String reference;
+
     private String title;
+
+    private String description;
 
     @Enumerated(EnumType.STRING)
     private DocType docType;

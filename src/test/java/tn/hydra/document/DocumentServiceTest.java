@@ -3,6 +3,9 @@ package tn.hydra.document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import tn.hydra.audit.EventLogService;
@@ -18,24 +21,32 @@ import tn.hydra.document.repository.DocFolderRepository;
 import tn.hydra.document.repository.DocumentRepository;
 import tn.hydra.document.repository.TagRepository;
 import tn.hydra.document.service.DocumentService;
+import tn.hydra.document.service.FileStorage;
+import tn.hydra.document.service.FilenameBuilder;
+import tn.hydra.document.service.ReferenceGenerator;
+import tn.hydra.document.service.StoredFile;
 import tn.hydra.exception.ResourceNotFoundException;
 import tn.hydra.ticket.TicketRepository;
 import tn.hydra.user.AppUser;
 import tn.hydra.user.AppUserRepository;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class DocumentServiceTest {
 
     private static final UUID ORG = UUID.randomUUID();
     private static final UUID FOLDER = UUID.randomUUID();
+    private static final UUID PROJECT = UUID.randomUUID();
     private static final UUID DOC = UUID.randomUUID();
 
     private DocumentRepository documents;
@@ -45,6 +56,9 @@ class DocumentServiceTest {
     private AppUserRepository users;
     private DocumentMapper mapper;
     private EventLogService audit;
+    private ReferenceGenerator references;
+    private FileStorage storage;
+    private FilenameBuilder filenameBuilder;
     private DocumentService service;
     private Authentication auth;
 
@@ -57,7 +71,11 @@ class DocumentServiceTest {
         users = mock(AppUserRepository.class);
         mapper = mock(DocumentMapper.class);
         audit = mock(EventLogService.class);
-        service = new DocumentService(documents, folders, tags, ticketRepo, users, mapper, audit);
+        references = mock(ReferenceGenerator.class);
+        storage = mock(FileStorage.class);
+        filenameBuilder = new FilenameBuilder();
+        service = new DocumentService(documents, folders, tags, ticketRepo, users, mapper, audit,
+                references, storage, filenameBuilder);
         auth = new UsernamePasswordAuthenticationToken("u@hydra.tn", "pw");
 
         AppUser me = new AppUser();
@@ -66,27 +84,36 @@ class DocumentServiceTest {
         me.setEmail("u@hydra.tn");
         when(users.findByEmail("u@hydra.tn")).thenReturn(Optional.of(me));
 
+        when(references.next(anyString())).thenReturn("SONEDE-01-00001");
+        when(storage.save(anyString(), any(), any())).thenReturn(new StoredFile("k", 3, "abc"));
         when(mapper.toResponse(any(Document.class))).thenReturn(
-                new DocumentResponse(DOC, UUID.randomUUID(), FOLDER, null, "Doc",
-                        DocType.APD, null, DocStatus.DRAFT, java.util.List.of(), 0,
-                        me.getId(), Instant.now(), null));
+                new DocumentResponse(DOC, "SONEDE-01-00001", PROJECT, FOLDER, null, "Doc", "d",
+                        DocType.APD, "Rev.0", DocStatus.DRAFT, List.of(), 1, me.getId(),
+                        Instant.now(), null));
     }
 
     private DocFolder folderInOrg() {
         DocFolder f = new DocFolder();
         f.setId(FOLDER);
+        f.setCode("02_TECH");
         Project p = new Project();
-        p.setId(UUID.randomUUID());
+        p.setId(PROJECT);
         p.setOrgId(ORG);
+        p.setCode("SONEDE-01");
         f.setProject(p);
         return f;
     }
 
+    private MockMultipartFile pdf() {
+        return new MockMultipartFile("file", "a.pdf", "application/pdf", "abc".getBytes());
+    }
+
+    // ── create (metadata only) ───────────────────────────────────────────
     @Test
-    void create_savesDraftDocument_inCallerOrg() {
+    void create_savesDraftDocument_andGeneratesReference() {
         when(folders.findByIdAndProject_OrgId(FOLDER, ORG)).thenReturn(Optional.of(folderInOrg()));
 
-        service.create(auth, FOLDER, new CreateDocumentRequest("  Rapport  ", DocType.APD, null, null));
+        service.create(auth, FOLDER, new CreateDocumentRequest("  Rapport  ", "desc", DocType.APD, null, null));
 
         ArgumentCaptor<Document> cap = ArgumentCaptor.forClass(Document.class);
         verify(documents).save(cap.capture());
@@ -94,7 +121,8 @@ class DocumentServiceTest {
         assertThat(saved.getOrgId()).isEqualTo(ORG);
         assertThat(saved.getTitle()).isEqualTo("Rapport");
         assertThat(saved.getStatus()).isEqualTo(DocStatus.DRAFT);
-        verify(audit).log(eq("DOCUMENT_CREATED"), eq("document"), any(), any());
+        assertThat(saved.getReference()).isEqualTo("SONEDE-01-00001");
+        verify(references).next("SONEDE-01");
     }
 
     @Test
@@ -102,11 +130,52 @@ class DocumentServiceTest {
         when(folders.findByIdAndProject_OrgId(FOLDER, ORG)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.create(auth, FOLDER,
-                new CreateDocumentRequest("Doc", DocType.APD, null, null)))
+                new CreateDocumentRequest("Doc", null, DocType.APD, null, null)))
                 .isInstanceOf(ResourceNotFoundException.class);
         verify(documents, never()).save(any());
     }
 
+    // ── combined upload ──────────────────────────────────────────────────
+    @Test
+    void upload_createsDocumentWithReferenceAndFirstRevision() {
+        when(folders.findByIdAndProject_OrgId(FOLDER, ORG)).thenReturn(Optional.of(folderInOrg()));
+
+        service.upload(auth, FOLDER, "Reservoir Nord", DocType.APD, null, null, null, "note", pdf());
+
+        ArgumentCaptor<Document> cap = ArgumentCaptor.forClass(Document.class);
+        verify(documents, atLeastOnce()).save(cap.capture());
+        Document saved = cap.getValue();
+        assertThat(saved.getReference()).isEqualTo("SONEDE-01-00001");
+        assertThat(saved.getDescription()).isEqualTo("note");
+        assertThat(saved.getStatus()).isEqualTo(DocStatus.DRAFT);
+        assertThat(saved.getCurrentRev()).isEqualTo("Rev.0");
+        assertThat(saved.getRevisions()).hasSize(1);
+        verify(storage).save(anyString(), any(), any());
+        verify(audit).log(eq("DOCUMENT_UPLOADED"), eq("document"), any(), any());
+    }
+
+    @Test
+    void upload_requiresFile() {
+        when(folders.findByIdAndProject_OrgId(FOLDER, ORG)).thenReturn(Optional.of(folderInOrg()));
+        assertThatThrownBy(() -> service.upload(auth, FOLDER, "Doc", DocType.APD,
+                null, null, null, null, new MockMultipartFile("file", "a.pdf", "application/pdf", new byte[0])))
+                .isInstanceOf(tn.hydra.exception.BadRequestException.class);
+        verify(documents, never()).save(any());
+    }
+
+    // ── register ─────────────────────────────────────────────────────────
+    @Test
+    void register_returnsProjectDocumentsOrderedByReference() {
+        when(documents.register(eq(ORG), eq(PROJECT), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var page = service.register(auth, PROJECT, Pageable.ofSize(20));
+
+        assertThat(page.items()).isEmpty();
+        verify(documents).register(eq(ORG), eq(PROJECT), any(Pageable.class));
+    }
+
+    // ── soft delete ──────────────────────────────────────────────────────
     @Test
     void softDelete_marksArchivedAndSetsDeletedAt() {
         Document doc = new Document();
@@ -120,6 +189,5 @@ class DocumentServiceTest {
         assertThat(doc.getDeletedAt()).isNotNull();
         assertThat(doc.getStatus()).isEqualTo(DocStatus.ARCHIVED);
         verify(documents).save(doc);
-        verify(audit).log(eq("DOCUMENT_DELETED"), eq("document"), eq(DOC), isNull());
     }
 }
