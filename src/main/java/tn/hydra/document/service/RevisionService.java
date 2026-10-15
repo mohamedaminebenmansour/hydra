@@ -32,19 +32,23 @@ public class RevisionService {
     private final FilenameBuilder filenameBuilder;
     private final EventLogService audit;
     private final DocumentService documentService;
+    private final tn.hydra.security.FolderAccessService folderAccess;
 
     public RevisionService(DocumentRepository documents, DocumentRevisionRepository revisions,
                            AppUserRepository users, DocumentMapper mapper, FileStorage storage,
                            FilenameBuilder filenameBuilder, EventLogService audit,
-                           DocumentService documentService) {
+                           DocumentService documentService,
+                           tn.hydra.security.FolderAccessService folderAccess) {
         this.documents = documents; this.revisions = revisions; this.users = users;
         this.mapper = mapper; this.storage = storage; this.filenameBuilder = filenameBuilder; this.audit = audit;
-        this.documentService = documentService;
+        this.documentService = documentService; this.folderAccess = folderAccess;
     }
 
     public List<RevisionResponse> list(Authentication auth, UUID documentId) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
-        assertReadable(documentId, me.getOrgId());
+        Document doc = assertReadable(documentId, me.getOrgId());
+        folderAccess.assertAccess(me.getId(), doc.getFolder().getId(),
+                tn.hydra.security.FolderAccessService.FolderAction.READ);
         return revisions.findByDocument_IdOrderByCreatedAtAsc(documentId).stream()
                 .map(mapper::toRevisionResponse).toList();
     }
@@ -55,6 +59,8 @@ public class RevisionService {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
         Document doc = documents.findByIdAndOrgId(documentId, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
+        folderAccess.assertAccess(me.getId(), doc.getFolder().getId(),
+                tn.hydra.security.FolderAccessService.FolderAction.UPLOAD);
         documentService.assertCanUpload(auth, me, doc.getFolder().getProject().getId());
         if (file == null || file.isEmpty())
             throw new BadRequestException("FILE_REQUIRED", "Un fichier est requis");
@@ -95,7 +101,9 @@ public class RevisionService {
 
     public DownloadFile download(Authentication auth, UUID documentId, UUID revisionId) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
-        assertReadable(documentId, me.getOrgId());
+        Document doc = assertReadable(documentId, me.getOrgId());
+        folderAccess.assertAccess(me.getId(), doc.getFolder().getId(),
+                tn.hydra.security.FolderAccessService.FolderAction.DOWNLOAD);
         DocumentRevision rev = revisions.findById(revisionId)
                 .filter(r -> r.getDocument().getId().equals(documentId))
                 .orElseThrow(() -> new ResourceNotFoundException("REVISION_NOT_FOUND", "RÃƒÂ©vision introuvable"));
@@ -104,9 +112,9 @@ public class RevisionService {
     }
 
     // Ã¢â€â‚¬Ã¢â€â‚¬ helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    private void assertReadable(UUID documentId, UUID orgId) {
-        if (documents.findByIdAndOrgId(documentId, orgId).isEmpty())
-            throw new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable");
+    private Document assertReadable(UUID documentId, UUID orgId) {
+        return documents.findByIdAndOrgId(documentId, orgId)
+                .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
     }
 
     /** Explicit revision if provided (validated unique), else auto-bumped. */

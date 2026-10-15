@@ -28,6 +28,7 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
             where d.orgId = :orgId
               and (:folderId is null or d.folder.id = :folderId)
               and (:projectId is null or d.folder.project.id = :projectId)
+              and (:folderIds is null or d.folder.id in :folderIds)
               and (:type is null or d.docType = :type)
               and (:status is null or d.status = :status)
               and (:revision is null or d.currentRev = :revision)
@@ -50,15 +51,18 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                           @Param("dateTo") Instant dateTo,
                           @Param("uploaderId") UUID uploaderId,
                           @Param("revision") String revision,
+                          @Param("folderIds") java.util.Collection<UUID> folderIds,
                           Pageable pageable);
 
     /** Master Document Register: all documents of a project, ordered by reference. */
     @Query("""
             select d from Document d
             where d.orgId = :orgId and d.folder.project.id = :projectId
+              and (:folderIds is null or d.folder.id in :folderIds)
             order by d.reference asc
             """)
     Page<Document> register(@Param("orgId") UUID orgId,
                             @Param("projectId") UUID projectId,
+                            @Param("folderIds") java.util.Collection<UUID> folderIds,
                             Pageable pageable);
 }

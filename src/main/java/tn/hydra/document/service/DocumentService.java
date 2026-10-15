@@ -25,6 +25,8 @@ import tn.hydra.document.repository.DocumentRepository;
 import tn.hydra.document.repository.TagRepository;
 import tn.hydra.exception.BadRequestException;
 import tn.hydra.exception.ResourceNotFoundException;
+import tn.hydra.security.FolderAccessService;
+import tn.hydra.security.FolderAccessService.FolderAction;
 import tn.hydra.ticket.Ticket;
 import tn.hydra.ticket.TicketRepository;
 import tn.hydra.user.AppUser;
@@ -54,6 +56,7 @@ public class DocumentService {
     private final FileStorage storage;
     private final FilenameBuilder filenameBuilder;
     private final JdbcTemplate jdbc;
+    private final FolderAccessService folderAccess;
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
             "pdf", "doc", "docx", "xls", "xlsx",
@@ -65,11 +68,13 @@ public class DocumentService {
                            TagRepository tags, TicketRepository ticketRepo,
                            AppUserRepository users, DocumentMapper mapper, EventLogService audit,
                            ReferenceGenerator references, FileStorage storage,
-                           FilenameBuilder filenameBuilder, JdbcTemplate jdbc) {
+                           FilenameBuilder filenameBuilder, JdbcTemplate jdbc,
+                           FolderAccessService folderAccess) {
         this.documents = documents; this.folders = folders; this.tags = tags;
         this.ticketRepo = ticketRepo; this.users = users; this.mapper = mapper;
         this.audit = audit; this.references = references; this.storage = storage;
         this.filenameBuilder = filenameBuilder; this.jdbc = jdbc;
+        this.folderAccess = folderAccess;
     }
 
     // ── combined upload: create Document + first revision in one call ─────
@@ -93,6 +98,7 @@ public class DocumentService {
         // Business rule: the document must live in a folder of a project of the caller's org.
         DocFolder folder = folders.findByIdAndProject_OrgId(folderId, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("FOLDER_NOT_FOUND", "Dossier introuvable"));
+        folderAccess.assertAccess(me.getId(), folderId, FolderAction.UPLOAD);
         assertCanUpload(auth, me, folder.getProject().getId());
 
         byte[] bytes;
@@ -152,6 +158,7 @@ public class DocumentService {
         AppUser me = currentUser(auth);
         DocFolder folder = folders.findByIdAndProject_OrgId(folderId, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("FOLDER_NOT_FOUND", "Dossier introuvable"));
+        folderAccess.assertAccess(me.getId(), folderId, FolderAction.UPLOAD);
         assertCanUpload(auth, me, folder.getProject().getId());
 
         Document doc = new Document();
@@ -176,6 +183,7 @@ public class DocumentService {
         AppUser me = currentUser(auth);
         Document doc = documents.findByIdAndOrgId(id, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
+        folderAccess.assertAccess(me.getId(), doc.getFolder().getId(), FolderAction.READ);
         return mapper.toResponse(doc);
     }
 
@@ -183,21 +191,29 @@ public class DocumentService {
         AppUser me = currentUser(auth);
         Document doc = documents.findByOrgIdAndReferenceIgnoreCase(me.getOrgId(), reference)
                 .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
+        folderAccess.assertAccess(me.getId(), doc.getFolder().getId(), FolderAction.READ);
         return mapper.toResponse(doc);
     }
 
     public PageResponse<DocumentResponse> search(Authentication auth, DocumentSearchQuery q, Pageable pageable) {
         AppUser me = currentUser(auth);
+        // folder ACL: null = no filter (owner / project ADMIN)
+        Set<UUID> readable = folderAccess.readableFolderIds(me, q.projectId());
+        if (readable != null && readable.isEmpty())
+            return PageResponse.from(Page.empty(pageable));
         Page<Document> page = documents.search(me.getOrgId(), q.folderId(), q.projectId(),
                 q.type(), q.status(), q.tagId(), q.q(), q.dateFrom(), q.dateTo(),
-                q.uploaderId(), q.revision(), pageable);
+                q.uploaderId(), q.revision(), readable, pageable);
         return PageResponse.from(page.map(mapper::toResponse));
     }
 
     /** Master Document Register: all documents of a project, ordered by reference. */
     public PageResponse<DocumentResponse> register(Authentication auth, UUID projectId, Pageable pageable) {
         AppUser me = currentUser(auth);
-        Page<Document> page = documents.register(me.getOrgId(), projectId, pageable);
+        Set<UUID> readable = folderAccess.readableFolderIds(me, projectId);
+        if (readable != null && readable.isEmpty())
+            return PageResponse.from(Page.empty(pageable));
+        Page<Document> page = documents.register(me.getOrgId(), projectId, readable, pageable);
         return PageResponse.from(page.map(mapper::toResponse));
     }
 
@@ -240,6 +256,7 @@ public class DocumentService {
         AppUser me = currentUser(auth);
         Document doc = documents.findByIdAndOrgId(id, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
+        folderAccess.assertAccess(me.getId(), doc.getFolder().getId(), FolderAction.DELETE);
         doc.setDeletedAt(Instant.now());
         if (doc.getStatus() != DocStatus.ARCHIVED) doc.setStatus(DocStatus.ARCHIVED);
         documents.save(doc);

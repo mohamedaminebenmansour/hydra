@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.hydra.audit.EventLogService;
 import tn.hydra.common.BusinessRuleException;
+import tn.hydra.security.FolderAccessService;
 import tn.hydra.user.AppUser;
 import tn.hydra.user.AppUserRepository;
 
@@ -45,9 +46,11 @@ public class ProjectService {
     private final JdbcTemplate jdbc;
     private final AppUserRepository users;
     private final EventLogService audit;
+    private final FolderAccessService folderAccess;
 
-    public ProjectService(JdbcTemplate jdbc, AppUserRepository users, EventLogService audit) {
-        this.jdbc = jdbc; this.users = users; this.audit = audit;
+    public ProjectService(JdbcTemplate jdbc, AppUserRepository users, EventLogService audit,
+                          FolderAccessService folderAccess) {
+        this.jdbc = jdbc; this.users = users; this.audit = audit; this.folderAccess = folderAccess;
     }
 
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• RESPONSE SHAPE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -166,6 +169,8 @@ public class ProjectService {
         // b/c) folder templates: org-specific first, else global; hard fallback if none.
         // Cloned flat (parent_id null) so create() never produces 0 folders.
         int folderCount = cloneTemplates(id, me.getOrgId());
+        // seed the default folder ACL matrix (role grants per folder code)
+        folderAccess.seedDefaults(id);
 
         // d) insert project_member for creator as MANAGER, can_upload true
         jdbc.update("""
@@ -240,12 +245,17 @@ public class ProjectService {
     public List<FolderResponse> listFolders(Authentication auth, UUID projectId) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
         requireReadable(auth, me, projectId);
+        // folder ACL: null = no filter (owner / project ADMIN), empty set = no folders
+        java.util.Set<UUID> readable = folderAccess.readableFolderIds(me, projectId);
+        if (readable != null && readable.isEmpty()) return List.of();
+        java.util.Set<UUID> filter = readable;
         return jdbc.queryForList("""
                 select id, project_id, parent_id, code, name, sort_order, created_at
                 from doc_folder
                 where project_id = ?
                 order by sort_order, name
                 """, projectId).stream()
+                .filter(r -> filter == null || filter.contains((UUID) r.get("id")))
                 .map(ProjectService::toFolderResponse).toList();
     }
 
@@ -446,6 +456,8 @@ public class ProjectService {
             audit.log("PROJECT_FOLDERS_ENSURED", "project", projectId,
                     "{\"folders\":" + inserted + "}");
         }
+        // folders created before V15 have no ACL rows yet — seed them (idempotent)
+        folderAccess.seedDefaults(projectId);
     }
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• HELPERS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 

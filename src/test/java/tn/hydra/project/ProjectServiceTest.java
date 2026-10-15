@@ -26,6 +26,7 @@ class ProjectServiceTest {
 
     private JdbcTemplate jdbc;
     private AppUserRepository users;
+    private tn.hydra.security.FolderAccessService folderAccess;
     private EventLogService audit;
     private ProjectService service;
     private Authentication auth;
@@ -45,7 +46,8 @@ class ProjectServiceTest {
         jdbc = mock(JdbcTemplate.class);
         users = mock(AppUserRepository.class);
         audit = mock(EventLogService.class);
-        service = new ProjectService(jdbc, users, audit);
+        service = new ProjectService(jdbc, users, audit,
+                folderAccess = mock(tn.hydra.security.FolderAccessService.class));
         auth = new UsernamePasswordAuthenticationToken("admin@hydra.tn", "pw");
 
         AppUser admin = new AppUser();
@@ -202,6 +204,7 @@ class ProjectServiceTest {
                 .thenReturn(List.of(PROJECT_ID));
         when(jdbc.queryForList(contains("from doc_folder"), eq(PROJECT_ID)))
                 .thenReturn(List.of(f));
+        when(folderAccess.readableFolderIds(any(), eq(PROJECT_ID))).thenReturn(null); // no ACL filter
 
         List<ProjectService.FolderResponse> folders = service.listFolders(auth, PROJECT_ID);
 

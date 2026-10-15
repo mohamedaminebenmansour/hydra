@@ -56,7 +56,9 @@ class RevisionServiceTest {
         storage = mock(FileStorage.class);
         filenameBuilder = new FilenameBuilder();
         audit = mock(EventLogService.class);
-        service = new RevisionService(documents, revisions, users, mapper, storage, filenameBuilder, audit);
+        service = new RevisionService(documents, revisions, users, mapper, storage, filenameBuilder,
+                audit, mock(tn.hydra.document.service.DocumentService.class),
+                mock(tn.hydra.security.FolderAccessService.class));
         auth = new UsernamePasswordAuthenticationToken("u@hydra.tn", "pw");
 
         AppUser me = new AppUser();

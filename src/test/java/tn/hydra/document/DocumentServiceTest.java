@@ -59,6 +59,8 @@ class DocumentServiceTest {
     private ReferenceGenerator references;
     private FileStorage storage;
     private FilenameBuilder filenameBuilder;
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private tn.hydra.security.FolderAccessService folderAccess;
     private DocumentService service;
     private Authentication auth;
 
@@ -74,8 +76,13 @@ class DocumentServiceTest {
         references = mock(ReferenceGenerator.class);
         storage = mock(FileStorage.class);
         filenameBuilder = new FilenameBuilder();
+        folderAccess = mock(tn.hydra.security.FolderAccessService.class);
+        jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
+        // per-project upload gate: project_member says can_upload = true
+        when(jdbc.query(anyString(), any(org.springframework.jdbc.core.ResultSetExtractor.class),
+                any(), any())).thenReturn(true);
         service = new DocumentService(documents, folders, tags, ticketRepo, users, mapper, audit,
-                references, storage, filenameBuilder);
+                references, storage, filenameBuilder, jdbc, folderAccess);
         auth = new UsernamePasswordAuthenticationToken("u@hydra.tn", "pw");
 
         AppUser me = new AppUser();
@@ -166,13 +173,14 @@ class DocumentServiceTest {
     // ── register ─────────────────────────────────────────────────────────
     @Test
     void register_returnsProjectDocumentsOrderedByReference() {
-        when(documents.register(eq(ORG), eq(PROJECT), any(Pageable.class)))
+        when(folderAccess.readableFolderIds(any(), eq(PROJECT))).thenReturn(null);
+        when(documents.register(eq(ORG), eq(PROJECT), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         var page = service.register(auth, PROJECT, Pageable.ofSize(20));
 
         assertThat(page.items()).isEmpty();
-        verify(documents).register(eq(ORG), eq(PROJECT), any(Pageable.class));
+        verify(documents).register(eq(ORG), eq(PROJECT), any(), any(Pageable.class));
     }
 
     // ── soft delete ──────────────────────────────────────────────────────
@@ -182,6 +190,7 @@ class DocumentServiceTest {
         doc.setId(DOC);
         doc.setOrgId(ORG);
         doc.setStatus(DocStatus.DRAFT);
+        doc.setFolder(folderInOrg());
         when(documents.findByIdAndOrgId(DOC, ORG)).thenReturn(Optional.of(doc));
 
         service.softDelete(auth, DOC);
