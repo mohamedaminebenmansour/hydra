@@ -10,8 +10,11 @@
 create table folder_access (
   id           uuid primary key default gen_random_uuid(),
   folder_id    uuid not null references doc_folder(id) on delete cascade,
-  role_code    text references role(code),     -- company role grant
-  user_id      uuid references app_user(id) on delete cascade, -- direct user grant
+  -- role_code is NOT a FK: role.code is only unique per (org_id, code) and via a
+  -- partial unique index (org_id IS NULL). PostgreSQL cannot reference a partial
+  -- unique index. Application code validates that role_code exists.
+  role_code    text,
+  user_id      uuid references app_user(id) on delete cascade,
   can_read     boolean not null default true,
   can_upload   boolean not null default false,
   can_download boolean not null default true,
