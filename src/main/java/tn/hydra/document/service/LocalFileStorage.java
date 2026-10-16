@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.UrlResource;
 import org.springframework.core.io.Resource;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import tn.hydra.exception.FileStorageException;
 
@@ -26,7 +27,10 @@ import java.security.NoSuchAlgorithmException;
  * The default {@code ./data/files} is for local development only and will not survive
  * redeploys on Render. At startup, if the storage root cannot be created, the app fails
  * fast with {@code STORAGE_INIT_FAILED} rather than failing on the first upload.
+ *
+ * Active when {@code hydra.storage.type=local} (or when the property is missing).
  */
+@ConditionalOnProperty(name = "hydra.storage.type", havingValue = "local", matchIfMissing = true)
 @Component
 public class LocalFileStorage implements FileStorage {
 
