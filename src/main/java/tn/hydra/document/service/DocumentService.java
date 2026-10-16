@@ -111,8 +111,22 @@ public class DocumentService {
         String revLabel = (revision == null || revision.isBlank()) ? "Rev.0" : revision.trim();
         String projectCode = folder.getProject().getCode();
 
-        // Create document FIRST (without revision) to get generated ID
+        // 1. Pre-generate IDs to avoid multi-save session flushing bugs
+        UUID docId = UUID.randomUUID();
+        UUID revId = UUID.randomUUID();
+
+        // 2. Build final storage key and store file using the pre-generated docId
+        String fileName = filenameBuilder.build(projectCode, docType, title.trim(), revLabel,
+                file.getOriginalFilename());
+        String finalKey = "org/" + me.getOrgId() + "/project/" + folder.getProject().getId()
+                + "/" + folder.getCode() + "/doc/" + docId + "/"
+                + revLabel.replace(' ', '_') + "__" + fileName;
+
+        StoredFile stored = storage.save(finalKey, bytes, file.getContentType());
+
+        // 3. Assemble the complete Document and Revision graph together atomically
         Document doc = new Document();
+        doc.setId(docId);
         doc.setOrgId(me.getOrgId());
         doc.setFolder(folder);
         doc.setReference(references.next(projectCode));
@@ -123,19 +137,8 @@ public class DocumentService {
         doc.setTicket(loadTicket(ticketId, me.getOrgId()));
         applyTags(doc, tagNames, me);
 
-        documents.save(doc); // assigns id via @UuidGenerator
-
-        // Now we have doc.getId() - build final storage key and store file
-        String fileName = filenameBuilder.build(projectCode, docType, title.trim(), revLabel,
-                file.getOriginalFilename());
-        String finalKey = "org/" + me.getOrgId() + "/project/" + folder.getProject().getId()
-                + "/" + folder.getCode() + "/doc/" + doc.getId() + "/"
-                + revLabel.replace(' ', '_') + "__" + fileName;
-
-        StoredFile stored = storage.save(finalKey, bytes, file.getContentType());
-
-        // Create revision with storage key (NEVER null)
         DocumentRevision rev = new DocumentRevision();
+        rev.setId(revId);
         rev.setRevLabel(revLabel);
         rev.setFileName(fileName);
         rev.setStorageKey(stored.key());
@@ -143,9 +146,11 @@ public class DocumentService {
         rev.setSizeBytes(stored.size());
         rev.setChecksumSha256(stored.checksumSha256());
         rev.setChangeNote(null);
-        doc.addRevision(rev); // sets currentRev
 
-        documents.save(doc); // cascade persists the revision
+        doc.addRevision(rev); // Links both sides and sets currentRev
+
+        // 4. Single atomic save for the entire graph
+        documents.save(doc);
 
         audit.log("DOCUMENT_UPLOADED", "document", doc.getId(),
                 "{\"reference\":\"" + esc(doc.getReference()) + "\",\"rev\":\"" + revLabel + "\"}");
@@ -316,3 +321,5 @@ public class DocumentService {
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }
+
+
