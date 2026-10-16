@@ -206,9 +206,7 @@ public class DocumentService {
         Set<UUID> readable = folderAccess.readableFolderIds(me, q.projectId());
         if (readable != null && readable.isEmpty())
             return PageResponse.from(Page.empty(pageable));
-        // Explicitly requested folder that the caller cannot read => see nothing
-        if (q.folderId() != null && readable != null && !readable.contains(q.folderId()))
-            return PageResponse.from(Page.empty(pageable));
+
         Page<Document> page;
         if (readable == null) {
             // owner / project ADMIN: no folderIds predicate at all (avoids null IN)
@@ -229,9 +227,7 @@ public class DocumentService {
         Set<UUID> readable = folderAccess.readableFolderIds(me, projectId);
         if (readable != null && readable.isEmpty())
             return PageResponse.from(Page.empty(pageable));
-        // Explicitly requested folder that the caller cannot read => see nothing
-        if (q.folderId() != null && readable != null && !readable.contains(q.folderId()))
-            return PageResponse.from(Page.empty(pageable));
+
         Page<Document> page;
         if (readable == null) {
             page = documents.registerAll(me.getOrgId(), projectId, pageable);
