@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.hydra.audit.EventLogService;
 import tn.hydra.common.BusinessRuleException;
+import tn.hydra.exception.BadRequestException;
 import tn.hydra.security.FolderAccessService;
 import tn.hydra.user.AppUser;
 import tn.hydra.user.AppUserRepository;
@@ -183,16 +184,14 @@ public class ProjectService {
         if (body.memberUserIds() != null) {
             for (UUID userId : body.memberUserIds()) {
                 if (userId == null || userId.equals(me.getId())) continue;
-                List<UUID> active = jdbc.queryForList("""
-                        select id from app_user
-                        where id = ? and org_id = ? and is_active = true
-                        """, UUID.class, userId, me.getOrgId());
-                if (active.isEmpty()) continue;
+                AppUser target = activeUserInOrg(userId, me.getOrgId());
                 jdbc.update("""
                         insert into project_member (project_id, user_id, project_role, can_upload, created_by)
                         values (?, ?, 'ENGINEER', true, ?)
                         on conflict (project_id, user_id) do nothing
-                        """, id, userId, me.getId());
+                        """, id, target.getId(), me.getId());
+                audit.log("PROJECT_MEMBER_ADDED", "project", id,
+                        "{\"userId\":\"" + target.getId() + "\",\"role\":\"ENGINEER\"}");
             }
         }
 
@@ -308,21 +307,27 @@ public class ProjectService {
                                     UUID userId, String projectRole, Boolean canUpload) {
         AppUser me = users.findByEmail(auth.getName()).orElseThrow();
         requireManageable(auth, me, projectId);
-        if (projectRole == null || !PROJECT_ROLES.contains(projectRole))
+        String role = projectRole == null ? "ENGINEER" : projectRole;
+        if (!PROJECT_ROLES.contains(role))
             throw new BusinessRuleException("INVALID_ROLE", "RÃ´le de projet invalide");
         boolean upload = canUpload == null || canUpload;
         AppUser target = activeUserInOrg(userId, me.getOrgId());
 
+        List<Map<String, Object>> existing = jdbc.queryForList("""
+                select 1 from project_member
+                where project_id = ? and user_id = ?
+                """, projectId, target.getId());
+        if (!existing.isEmpty())
+            throw new BusinessRuleException("MEMBER_EXISTS",
+                    "Ce membre existe déjà dans ce projet");
+
         jdbc.update("""
                 insert into project_member (project_id, user_id, project_role, can_upload, created_by)
                 values (?, ?, ?, ?, ?)
-                on conflict (project_id, user_id)
-                    do update set project_role = excluded.project_role,
-                                  can_upload   = excluded.can_upload
-                """, projectId, target.getId(), projectRole, upload, me.getId());
+                """, projectId, target.getId(), role, upload, me.getId());
 
         audit.log("PROJECT_MEMBER_ADDED", "project", projectId,
-                "{\"userId\":\"" + target.getId() + "\",\"role\":\"" + projectRole + "\"}");
+                "{\"userId\":\"" + target.getId() + "\",\"role\":\"" + role + "\"}");
         return memberRow(projectId, target.getId());
     }
 
@@ -516,11 +521,11 @@ public class ProjectService {
 
     private AppUser activeUserInOrg(UUID userId, UUID orgId) {
         if (userId == null)
-            throw new BusinessRuleException("USER_NOT_FOUND", "Utilisateur introuvable");
+            throw new BadRequestException("USER_NOT_FOUND", "Utilisateur introuvable");
         AppUser target = users.findById(userId)
-                .orElseThrow(() -> new BusinessRuleException("USER_NOT_FOUND", "Utilisateur introuvable"));
+                .orElseThrow(() -> new BadRequestException("USER_NOT_FOUND", "Utilisateur introuvable"));
         if (!orgId.equals(target.getOrgId()) || !Boolean.TRUE.equals(target.getIsActive()))
-            throw new BusinessRuleException("USER_NOT_FOUND", "Utilisateur introuvable");
+            throw new BadRequestException("USER_NOT_FOUND", "Utilisateur introuvable");
         return target;
     }
 

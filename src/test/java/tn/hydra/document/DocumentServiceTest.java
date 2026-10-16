@@ -162,6 +162,25 @@ class DocumentServiceTest {
     }
 
     @Test
+    void upload_bypassesCanUploadForOwner() {
+        when(folders.findByIdAndProject_OrgId(FOLDER, ORG)).thenReturn(Optional.of(folderInOrg()));
+        AppUser owner = new AppUser();
+        owner.setId(UUID.randomUUID());
+        owner.setOrgId(ORG);
+        owner.setEmail("u@hydra.tn");
+        owner.setIsOwner(true);
+        when(users.findByEmail("u@hydra.tn")).thenReturn(Optional.of(owner));
+        // project_member would deny (no row / can_upload=false) — owner must bypass anyway
+        when(jdbc.query(anyString(), any(org.springframework.jdbc.core.ResultSetExtractor.class),
+                any(), any())).thenReturn(false);
+
+        service.upload(auth, FOLDER, "Reservoir Nord", DocType.APD, null, null, null, "note", pdf());
+
+        verify(storage).save(anyString(), any(), any());
+        verify(audit).log(eq("DOCUMENT_UPLOADED"), eq("document"), any(), any());
+    }
+
+    @Test
     void upload_requiresFile() {
         when(folders.findByIdAndProject_OrgId(FOLDER, ORG)).thenReturn(Optional.of(folderInOrg()));
         assertThatThrownBy(() -> service.upload(auth, FOLDER, "Doc", DocType.APD,

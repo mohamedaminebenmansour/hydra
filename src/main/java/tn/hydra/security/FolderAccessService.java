@@ -245,7 +245,7 @@ public class FolderAccessService {
             // hard rule first (before any DB lookup): never grant on a Finance folder
             if (FINANCE_FOLDER_FORBIDDEN.contains(code) && folder.code() != null
                     && folder.code().startsWith("06"))
-                throw new BusinessRuleException("FOLDER_ACCESS_FORBIDDEN",
+                throw new BadRequestException("FOLDER_ACCESS_FORBIDDEN",
                         "Accès refusé : ce rôle ne peut pas accéder au dossier Finance");
             Integer found = jdbc.queryForObject(
                     "select count(*) from role where code = ?", Integer.class, code);

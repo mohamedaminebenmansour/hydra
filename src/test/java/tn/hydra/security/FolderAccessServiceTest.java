@@ -167,7 +167,7 @@ class FolderAccessServiceTest {
 
         assertThatThrownBy(() -> service.grant(auth, PROJECT, FOLDER,
                 new GrantRequest(null, "SOUS_TRAITANT", true, false, true, false, false)))
-                .isInstanceOf(BusinessRuleException.class)
+                .isInstanceOf(BadRequestException.class)
                 .hasFieldOrPropertyWithValue("code", "FOLDER_ACCESS_FORBIDDEN");
         verify(jdbc, never()).update(contains("insert into folder_access"),
                 any(), any(), any(), any(), any(), any(), any(), any());

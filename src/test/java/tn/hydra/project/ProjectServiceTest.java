@@ -8,6 +8,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import tn.hydra.audit.EventLogService;
 import tn.hydra.common.BusinessRuleException;
+import tn.hydra.exception.BadRequestException;
 import tn.hydra.user.AppUser;
 import tn.hydra.user.AppUserRepository;
 
@@ -23,6 +24,7 @@ class ProjectServiceTest {
 
     private static final UUID ORG = UUID.randomUUID();
     private static final UUID PROJECT_ID = UUID.randomUUID();
+    private static final UUID MEMBER_ID = UUID.randomUUID();
 
     private JdbcTemplate jdbc;
     private AppUserRepository users;
@@ -39,6 +41,15 @@ class ProjectServiceTest {
         row.put("status", status);
         row.put("created_at", Instant.now());
         return row;
+    }
+
+    private AppUser memberUser() {
+        AppUser u = new AppUser();
+        u.setId(MEMBER_ID);
+        u.setOrgId(ORG);
+        u.setEmail("member@hydra.tn");
+        u.setIsActive(true);
+        return u;
     }
 
     @BeforeEach
@@ -213,6 +224,93 @@ class ProjectServiceTest {
         assertThat(folders.get(0).sortOrder()).isEqualTo(1);
         assertThat(folders.get(0).createdAt()).isEqualTo(created);
     }
+
+    // ── create with members ──────────────────────────────────────────────
+
+    @Test
+    void create_withMemberUserIds_createsMembershipsAndAuditsEach() {
+        stubCreate();
+        when(users.findById(MEMBER_ID)).thenReturn(Optional.of(memberUser()));
+        when(jdbc.queryForList(contains("where p.id = ? and p.org_id = ?"),
+                eq(PROJECT_ID), eq(ORG)))
+                .thenReturn(List.of(projectRow(PROJECT_ID, "Chantier Nord", "CN", "ACTIF")));
+
+        service.create(auth, new ProjectService.CreateProjectRequest(
+                "Chantier Nord", "CN", null, null, null, null, null,
+                null, null, null, null, List.of(MEMBER_ID)));
+
+        verify(jdbc).update(contains("insert into project_member"),
+                eq(PROJECT_ID), eq(MEMBER_ID), any());
+        verify(audit).log(eq("PROJECT_MEMBER_ADDED"), eq("project"), eq(PROJECT_ID),
+                contains(MEMBER_ID.toString()));
+    }
+
+    @Test
+    void create_invalidMemberUserId_throwsBadRequest() {
+        stubCreate();
+        when(users.findById(MEMBER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.create(auth, new ProjectService.CreateProjectRequest(
+                "Chantier Nord", "CN", null, null, null, null, null,
+                null, null, null, null, List.of(MEMBER_ID))))
+                .isInstanceOf(BadRequestException.class)
+                .hasFieldOrPropertyWithValue("code", "USER_NOT_FOUND");
+    }
+
+    // ── add member ───────────────────────────────────────────────────────
+
+    @Test
+    void addMember_defaultsRoleToEngineer_whenMissing() {
+        when(jdbc.queryForList(contains("select id from project where id = ? and org_id = ?"),
+                eq(UUID.class), eq(PROJECT_ID), eq(ORG)))
+                .thenReturn(List.of(PROJECT_ID));
+        when(jdbc.queryForList(contains("select 1 from project_member"), eq(PROJECT_ID), any()))
+                .thenReturn(List.of());
+        when(users.findById(MEMBER_ID)).thenReturn(Optional.of(memberUser()));
+        var memberRow = new HashMap<String, Object>();
+        memberRow.put("user_id", MEMBER_ID);
+        memberRow.put("full_name", "Member User");
+        memberRow.put("email", "member@hydra.tn");
+        memberRow.put("project_role", "ENGINEER");
+        memberRow.put("can_upload", true);
+        memberRow.put("created_at", Instant.now());
+        when(jdbc.queryForList(contains("pm.user_id"), eq(PROJECT_ID), eq(MEMBER_ID)))
+                .thenReturn(List.of(memberRow));
+
+        service.addMember(auth, PROJECT_ID, MEMBER_ID, null, true);
+
+        verify(jdbc).update(contains("insert into project_member"),
+                eq(PROJECT_ID), eq(MEMBER_ID), eq("ENGINEER"), anyBoolean(), any());
+        verify(audit).log(eq("PROJECT_MEMBER_ADDED"), eq("project"), eq(PROJECT_ID),
+                contains("ENGINEER"));
+    }
+
+    @Test
+    void addMember_duplicateMember_throwsMemberExists() {
+        when(jdbc.queryForList(contains("select id from project where id = ? and org_id = ?"),
+                eq(UUID.class), eq(PROJECT_ID), eq(ORG)))
+                .thenReturn(List.of(PROJECT_ID));
+        when(users.findById(MEMBER_ID)).thenReturn(Optional.of(memberUser()));
+        when(jdbc.queryForList(contains("select 1 from project_member"), eq(PROJECT_ID), any()))
+                .thenReturn(List.of(Map.of("1", 1)));
+
+        assertThatThrownBy(() -> service.addMember(auth, PROJECT_ID, MEMBER_ID, "ENGINEER", true))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasFieldOrPropertyWithValue("code", "MEMBER_EXISTS");
+    }
+
+    @Test
+    void addMember_invalidUserId_throwsBadRequest() {
+        when(jdbc.queryForList(contains("select id from project where id = ? and org_id = ?"),
+                eq(UUID.class), eq(PROJECT_ID), eq(ORG)))
+                .thenReturn(List.of(PROJECT_ID));
+        when(users.findById(MEMBER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.addMember(auth, PROJECT_ID, MEMBER_ID, "ENGINEER", true))
+                .isInstanceOf(BadRequestException.class)
+                .hasFieldOrPropertyWithValue("code", "USER_NOT_FOUND");
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────
 
     private void stubCreate() {

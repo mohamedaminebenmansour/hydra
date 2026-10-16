@@ -1,5 +1,7 @@
 package tn.hydra.common;
 
+import jakarta.validation.ConstraintViolationException;
+import java.util.NoSuchElementException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -8,7 +10,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import tn.hydra.exception.BadRequestException;
@@ -78,6 +83,50 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> malformed(Exception e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError("BAD_REQUEST", "Requête invalide"));
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ApiError> missingPart(MissingServletRequestPartException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("MISSING_PART",
+                        "Champ de fichier manquant dans la requête multipart : " + e.getRequestPartName()));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiError> missingParameter(
+            MissingServletRequestParameterException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("MISSING_PARAMETER",
+                        "Paramètre requis manquant : " + e.getParameterName()));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> typeMismatch(MethodArgumentTypeMismatchException e) {
+        String name = e.getName() != null ? e.getName() : "paramètre";
+        String value = e.getValue() != null ? String.valueOf(e.getValue()) : "";
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("INVALID_PARAMETER",
+                        "Valeur invalide pour le paramètre " + name + " : " + value));
+    }
+
+    @ExceptionHandler(NoSuchElementException.class)
+    public ResponseEntity<ApiError> noSuchElement(NoSuchElementException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError("NOT_FOUND",
+                        e.getMessage() != null ? e.getMessage() : "Ressource introuvable"));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiError> illegalArgument(IllegalArgumentException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("BAD_REQUEST",
+                        e.getMessage() != null ? e.getMessage() : "Argument invalide"));
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiError> constraintViolation(ConstraintViolationException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("VALIDATION_FAILED", "Violation de contrainte de validation"));
     }
 
     @ExceptionHandler(Exception.class)

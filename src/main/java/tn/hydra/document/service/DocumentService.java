@@ -265,7 +265,8 @@ public class DocumentService {
 
     // ── helpers ──────────────────────────────────────────────────────────
     private AppUser currentUser(Authentication auth) {
-        return users.findByEmail(auth.getName()).orElseThrow();
+        return users.findByEmail(auth.getName())
+                .orElseThrow(() -> new ResourceNotFoundException("USER_NOT_FOUND", "Utilisateur introuvable"));
     }
 
     /**
