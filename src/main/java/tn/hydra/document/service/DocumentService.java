@@ -32,6 +32,9 @@ import tn.hydra.ticket.TicketRepository;
 import tn.hydra.user.AppUser;
 import tn.hydra.user.AppUserRepository;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+
 
 
 import java.io.IOException;
@@ -57,6 +60,9 @@ public class DocumentService {
     private final FilenameBuilder filenameBuilder;
     private final JdbcTemplate jdbc;
     private final FolderAccessService folderAccess;
+
+    @PersistenceContext
+    private EntityManager em;
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
             "pdf", "doc", "docx", "xls", "xlsx",
@@ -152,11 +158,10 @@ public class DocumentService {
         doc.markNew();
         rev.markNew();
 
-        // 4. Single atomic save for the entire graph. Because Document/DocumentRevision
-        // implement Persistable with isNew=true, Spring Data calls persist() (not merge()),
-        // so the pre-generated ids are kept and no StaleObjectStateException is thrown.
+        // ALWAYS persist for pre-assigned UUIDs - never repository.save() here
         try {
-            documents.save(doc);
+            em.persist(doc);
+            em.flush();
         } catch (RuntimeException e) {
             // Best-effort cleanup: remove the already-uploaded S3 object to avoid an orphan.
             try {

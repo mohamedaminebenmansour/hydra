@@ -61,6 +61,7 @@ class DocumentServiceTest {
     private FilenameBuilder filenameBuilder;
     private org.springframework.jdbc.core.JdbcTemplate jdbc;
     private tn.hydra.security.FolderAccessService folderAccess;
+    private jakarta.persistence.EntityManager em;
     private DocumentService service;
     private Authentication auth;
 
@@ -83,6 +84,8 @@ class DocumentServiceTest {
                 any(), any())).thenReturn(true);
         service = new DocumentService(documents, folders, tags, ticketRepo, users, mapper, audit,
                 references, storage, filenameBuilder, jdbc, folderAccess);
+        em = mock(jakarta.persistence.EntityManager.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "em", em);
         auth = new UsernamePasswordAuthenticationToken("u@hydra.tn", "pw");
 
         AppUser me = new AppUser();
@@ -150,7 +153,7 @@ class DocumentServiceTest {
         service.upload(auth, FOLDER, "Reservoir Nord", DocType.APD, null, null, null, "note", pdf());
 
         ArgumentCaptor<Document> cap = ArgumentCaptor.forClass(Document.class);
-        verify(documents, atLeastOnce()).save(cap.capture());
+        verify(em).persist(cap.capture());
         Document saved = cap.getValue();
         assertThat(saved.getReference()).isEqualTo("SONEDE-01-00001");
         assertThat(saved.getDescription()).isEqualTo("note");
@@ -186,7 +189,7 @@ class DocumentServiceTest {
         assertThatThrownBy(() -> service.upload(auth, FOLDER, "Doc", DocType.APD,
                 null, null, null, null, new MockMultipartFile("file", "a.pdf", "application/pdf", new byte[0])))
                 .isInstanceOf(tn.hydra.exception.BadRequestException.class);
-        verify(documents, never()).save(any());
+        verify(em, never()).persist(any());
     }
 
     // ── register ─────────────────────────────────────────────────────────
