@@ -132,7 +132,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> generic(Exception e) {
         log.error("Unhandled exception", e);
+        // Temporarily include the exception class simple name so the Network tab is useful
+        // while diagnosing production 500s. Can be removed later.
+        String message = "INTERNAL: " + e.getClass().getSimpleName()
+                + (e.getMessage() != null ? " — " + e.getMessage() : "");
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiError("INTERNAL", "Une erreur interne est survenue"));
+                .body(new ApiError("INTERNAL", message));
     }
 }

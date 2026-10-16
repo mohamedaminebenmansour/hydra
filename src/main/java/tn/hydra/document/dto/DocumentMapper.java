@@ -21,8 +21,8 @@ public interface DocumentMapper {
     @Mapping(target = "ticketId",
             expression = "java(document.getTicket() == null ? null : document.getTicket().getId())")
     @Mapping(target = "tags",
-            expression = "java(document.getTags().stream().map(Tag::getName).sorted().toList())")
-    @Mapping(target = "revisionCount", expression = "java(document.getRevisions().size())")
+            expression = "java(document.getTags() == null ? java.util.List.of() : document.getTags().stream().map(Tag::getName).sorted().toList())")
+    @Mapping(target = "revisionCount", expression = "java(document.getRevisions() == null ? 0 : document.getRevisions().size())")
     DocumentResponse toResponse(Document document);
 
     @Mapping(target = "uploadedBy", source = "createdBy")

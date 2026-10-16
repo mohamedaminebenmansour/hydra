@@ -50,13 +50,13 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void anythingElseReturns500WithFrenchFallback() {
+    void anythingElseReturns500WithClassNameInMessage() {
         ResponseEntity<GlobalExceptionHandler.ApiError> res =
                 handler.generic(new IllegalStateException("boom"));
 
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(res.getBody().code()).isEqualTo("INTERNAL");
-        assertThat(res.getBody().message()).isEqualTo("Une erreur interne est survenue");
+        assertThat(res.getBody().message()).startsWith("INTERNAL: IllegalStateException");
     }
 
     @Test

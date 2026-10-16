@@ -193,13 +193,13 @@ class DocumentServiceTest {
     @Test
     void register_returnsProjectDocumentsOrderedByReference() {
         when(folderAccess.readableFolderIds(any(), eq(PROJECT))).thenReturn(null);
-        when(documents.register(eq(ORG), eq(PROJECT), any(), any(Pageable.class)))
+        when(documents.registerAll(eq(ORG), eq(PROJECT), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         var page = service.register(auth, PROJECT, Pageable.ofSize(20));
 
         assertThat(page.items()).isEmpty();
-        verify(documents).register(eq(ORG), eq(PROJECT), any(), any(Pageable.class));
+        verify(documents).registerAll(eq(ORG), eq(PROJECT), any(Pageable.class));
     }
 
     // ── soft delete ──────────────────────────────────────────────────────

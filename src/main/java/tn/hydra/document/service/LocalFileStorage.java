@@ -1,5 +1,7 @@
 package tn.hydra.document.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.UrlResource;
 import org.springframework.core.io.Resource;
@@ -18,9 +20,17 @@ import java.security.NoSuchAlgorithmException;
  * Phase-1 local-disk storage. Keys are relative paths like
  * org/{org}/project/{proj}/{folder}/doc/{doc}/RevA__<file>. Files are only ever
  * served through the API download endpoint, never by direct path.
+ *
+ * <b>Production requirement:</b> {@code HYDRA_STORAGE_ROOT} MUST be set to a writable
+ * persistent path (e.g. {@code /var/data/files} on Render backed by a Render Disk).
+ * The default {@code ./data/files} is for local development only and will not survive
+ * redeploys on Render. At startup, if the storage root cannot be created, the app fails
+ * fast with {@code STORAGE_INIT_FAILED} rather than failing on the first upload.
  */
 @Component
 public class LocalFileStorage implements FileStorage {
+
+    private static final Logger log = LoggerFactory.getLogger(LocalFileStorage.class);
 
     private final Path root;
 
@@ -30,22 +40,25 @@ public class LocalFileStorage implements FileStorage {
 
     @PostConstruct
     void init() {
+        log.info("LocalFileStorage root = {}", root);
         try {
             Files.createDirectories(this.root);
         } catch (IOException e) {
-            throw new FileStorageException("STORAGE_INIT_FAILED", "Impossible de créer le répertoire de stockage: " + root, e);
+            throw new FileStorageException("STORAGE_INIT_FAILED",
+                    "Failed to create storage directory at " + root + ". Set HYDRA_STORAGE_ROOT to a writable persistent path.", e);
         }
     }
 
     @Override
     public StoredFile save(String key, byte[] content, String contentType) {
+        log.debug("LocalFileStorage root = {} saving key = {}", root, key);
         try {
             Path target = resolve(key);
             Files.createDirectories(target.getParent());
             Files.write(target, content);
             return new StoredFile(key, content.length, sha256(content));
         } catch (IOException e) {
-            throw new FileStorageException("STORAGE_WRITE_FAILED", "Échec d'enregistrement du fichier", e);
+            throw new FileStorageException("STORAGE_WRITE_FAILED", "Failed to store file", e);
         }
     }
 
@@ -54,7 +67,7 @@ public class LocalFileStorage implements FileStorage {
         try {
             return Files.readAllBytes(resolve(key));
         } catch (IOException e) {
-            throw new FileStorageException("STORAGE_READ_FAILED", "Fichier illisible", e);
+            throw new FileStorageException("STORAGE_READ_FAILED", "File unreadable", e);
         }
     }
 
@@ -63,12 +76,12 @@ public class LocalFileStorage implements FileStorage {
         try {
             Path path = resolve(key);
             if (!Files.exists(path)) {
-                throw new FileStorageException("FILE_NOT_FOUND", "Fichier introuvable");
+                throw new FileStorageException("FILE_NOT_FOUND", "File not found");
             }
             return new UrlResource(path.toUri());
         } catch (Exception e) {
             if (e instanceof FileStorageException fse) throw fse;
-            throw new FileStorageException("FILE_NOT_FOUND", "Fichier introuvable", e);
+            throw new FileStorageException("FILE_NOT_FOUND", "File not found", e);
         }
     }
 
@@ -77,7 +90,7 @@ public class LocalFileStorage implements FileStorage {
         try {
             Files.deleteIfExists(resolve(key));
         } catch (IOException e) {
-            throw new FileStorageException("STORAGE_DELETE_FAILED", "Échec de suppression du fichier", e);
+            throw new FileStorageException("STORAGE_DELETE_FAILED", "Failed to delete file", e);
         }
     }
 

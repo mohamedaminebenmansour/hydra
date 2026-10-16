@@ -206,9 +206,20 @@ public class DocumentService {
         Set<UUID> readable = folderAccess.readableFolderIds(me, q.projectId());
         if (readable != null && readable.isEmpty())
             return PageResponse.from(Page.empty(pageable));
-        Page<Document> page = documents.search(me.getOrgId(), q.folderId(), q.projectId(),
-                q.type(), q.status(), q.tagId(), q.q(), q.dateFrom(), q.dateTo(),
-                q.uploaderId(), q.revision(), readable, pageable);
+        // Explicitly requested folder that the caller cannot read => see nothing
+        if (q.folderId() != null && readable != null && !readable.contains(q.folderId()))
+            return PageResponse.from(Page.empty(pageable));
+        Page<Document> page;
+        if (readable == null) {
+            // owner / project ADMIN: no folderIds predicate at all (avoids null IN)
+            page = documents.searchAll(me.getOrgId(), q.folderId(), q.projectId(),
+                    q.type(), q.status(), q.tagId(), q.q(), q.dateFrom(), q.dateTo(),
+                    q.uploaderId(), q.revision(), pageable);
+        } else {
+            page = documents.searchInFolders(me.getOrgId(), q.folderId(), q.projectId(),
+                    q.type(), q.status(), q.tagId(), q.q(), q.dateFrom(), q.dateTo(),
+                    q.uploaderId(), q.revision(), readable, pageable);
+        }
         return PageResponse.from(page.map(mapper::toResponse));
     }
 
@@ -218,7 +229,15 @@ public class DocumentService {
         Set<UUID> readable = folderAccess.readableFolderIds(me, projectId);
         if (readable != null && readable.isEmpty())
             return PageResponse.from(Page.empty(pageable));
-        Page<Document> page = documents.register(me.getOrgId(), projectId, readable, pageable);
+        // Explicitly requested folder that the caller cannot read => see nothing
+        if (q.folderId() != null && readable != null && !readable.contains(q.folderId()))
+            return PageResponse.from(Page.empty(pageable));
+        Page<Document> page;
+        if (readable == null) {
+            page = documents.registerAll(me.getOrgId(), projectId, pageable);
+        } else {
+            page = documents.registerInFolders(me.getOrgId(), projectId, readable, pageable);
+        }
         return PageResponse.from(page.map(mapper::toResponse));
     }
 
