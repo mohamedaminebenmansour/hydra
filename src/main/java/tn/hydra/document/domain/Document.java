@@ -5,7 +5,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.SQLRestriction;
-import org.hibernate.annotations.UuidGenerator;
+import org.springframework.data.domain.Persistable;
+import tn.hydra.common.id.AssignedUuid;
 import tn.hydra.ticket.Ticket;
 
 import java.time.Instant;
@@ -27,11 +28,32 @@ import java.util.UUID;
 @Getter
 @Setter
 @NoArgsConstructor
-public class Document extends Auditable {
+public class Document extends Auditable implements Persistable<UUID> {
 
     @Id
-    @UuidGenerator
+    @AssignedUuid
     private UUID id;
+
+    /**
+     * New-instance flag for Spring Data. Defaults to true so that a freshly constructed
+     * Document (even with a pre-assigned id) is saved via persist() and not merge().
+     * Set to false by {@link #markNotNew()} after the entity is loaded from or written to the database.
+     */
+    @Transient
+    private boolean isNew = true;
+
+    @Override
+    public UUID getId() { return id; }
+
+    @Override
+    public boolean isNew() { return isNew; }
+
+    @PostLoad
+    @PostPersist
+    void markNotNew() { this.isNew = false; }
+
+    /** Call when creating a new Document with a pre-assigned id before save. */
+    public void markNew() { this.isNew = true; }
 
     /** Tenant scope (denormalized for fast org-wide queries). */
     private UUID orgId;

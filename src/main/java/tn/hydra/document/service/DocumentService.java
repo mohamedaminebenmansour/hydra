@@ -149,8 +149,23 @@ public class DocumentService {
 
         doc.addRevision(rev); // Links both sides and sets currentRev
 
-        // 4. Single atomic save for the entire graph
-        documents.save(doc);
+        doc.markNew();
+        rev.markNew();
+
+        // 4. Single atomic save for the entire graph. Because Document/DocumentRevision
+        // implement Persistable with isNew=true, Spring Data calls persist() (not merge()),
+        // so the pre-generated ids are kept and no StaleObjectStateException is thrown.
+        try {
+            documents.save(doc);
+        } catch (RuntimeException e) {
+            // Best-effort cleanup: remove the already-uploaded S3 object to avoid an orphan.
+            try {
+                storage.delete(finalKey);
+            } catch (RuntimeException suppressed) {
+                e.addSuppressed(suppressed);
+            }
+            throw e;
+        }
 
         audit.log("DOCUMENT_UPLOADED", "document", doc.getId(),
                 "{\"reference\":\"" + esc(doc.getReference()) + "\",\"rev\":\"" + revLabel + "\"}");

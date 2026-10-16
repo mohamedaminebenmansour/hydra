@@ -4,7 +4,8 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.UuidGenerator;
+import org.springframework.data.domain.Persistable;
+import tn.hydra.common.id.AssignedUuid;
 
 import java.util.UUID;
 
@@ -17,11 +18,32 @@ import java.util.UUID;
 @Getter
 @Setter
 @NoArgsConstructor
-public class DocumentRevision extends Auditable {
+public class DocumentRevision extends Auditable implements Persistable<UUID> {
 
     @Id
-    @UuidGenerator
+    @AssignedUuid
     private UUID id;
+
+    /**
+     * New-instance flag for Spring Data. Defaults to true so that a freshly constructed
+     * revision (even with a pre-assigned id) is saved via persist() and not merge().
+     * Set to false by {@link #markNotNew()} after the entity is loaded from or written to the database.
+     */
+    @Transient
+    private boolean isNew = true;
+
+    @Override
+    public UUID getId() { return id; }
+
+    @Override
+    public boolean isNew() { return isNew; }
+
+    @PostLoad
+    @PostPersist
+    void markNotNew() { this.isNew = false; }
+
+    /** Call when creating a new revision with a pre-assigned id before save. */
+    public void markNew() { this.isNew = true; }
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "document_id", nullable = false)
