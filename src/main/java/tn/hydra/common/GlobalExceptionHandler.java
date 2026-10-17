@@ -1,5 +1,6 @@
 package tn.hydra.common;
 
+import jakarta.persistence.PersistenceException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.util.NoSuchElementException;
@@ -104,6 +105,26 @@ public class GlobalExceptionHandler {
                 .body(new ApiError("DATA_INTEGRITY", "Violation de contrainte de données"));
     }
 
+    /**
+     * Catches Hibernate/JPA persistence failures that escape the @Transactional boundary.
+     * Common causes on Supabase / Vercel Postgres:
+     *   - Row Level Security enabled with no policies → INSERT/SELECT denied
+     *   - Missing sequence (doc_reference_seq) → relation does not exist
+     *   - FK violation on document.folder_id or document.created_by
+     */
+    @ExceptionHandler(PersistenceException.class)
+    public ResponseEntity<ApiError> persistence(PersistenceException e, HttpServletRequest request) {
+        Throwable root = rootCause(e);
+        log.error("[DB] PersistenceException on {} {} — root: {} : {}",
+                request.getMethod(), request.getRequestURI(),
+                root.getClass().getSimpleName(), root.getMessage(), e);
+        String detail = root.getMessage() != null ? truncate(root.getMessage()) : e.getMessage();
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(new ApiError("DB_ERROR",
+                        "Erreur base de données : " + detail));
+    }
+
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentNotValidException.class})
     public ResponseEntity<ApiError> malformed(Exception e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -156,15 +177,27 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> generic(Exception e, HttpServletRequest request) {
-        log.error("Unhandled exception on {} {}",
-                request.getMethod(), request.getRequestURI(), e);
-        // Include the exception class simple name so the Network tab is useful
-        // while diagnosing production 500s. Can be removed later.
-        String message = "INTERNAL: " + e.getClass().getSimpleName()
-                + (e.getMessage() != null ? " — " + e.getMessage() : "");
+        Throwable root = rootCause(e);
+        log.error("Unhandled exception on {} {} — type={} rootType={} rootMsg={}",
+                request.getMethod(), request.getRequestURI(),
+                e.getClass().getSimpleName(),
+                root.getClass().getSimpleName(),
+                root.getMessage(), e);
+        // Include class + root cause so the Network tab is actionable while diagnosing
+        // production 500s without needing direct log access.
+        String message = e.getClass().getSimpleName()
+                + (e.getMessage() != null ? " — " + truncate(e.getMessage()) : "")
+                + (root != e ? " | root: " + root.getClass().getSimpleName()
+                    + (root.getMessage() != null ? " — " + truncate(root.getMessage()) : "") : "");
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new ApiError("INTERNAL", message));
+    }
+
+    /** Walk the cause chain to find the deepest root cause. */
+    private static Throwable rootCause(Throwable t) {
+        Throwable cause = t.getCause();
+        return (cause == null || cause == t) ? t : rootCause(cause);
     }
 
     /** Truncate long cause messages so the JSON body stays readable. */
