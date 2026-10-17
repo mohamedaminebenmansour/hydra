@@ -36,7 +36,7 @@ public class UserController {
     // Lightweight active-user picker so field users holding TICKET_WRITE can
     // assign tickets without needing USER_CREATE (GET /api/users stays restricted).
     @GetMapping("/options")
-    @PreAuthorize("hasAnyAuthority('PERM_TICKET_WRITE','PERM_TICKET_ASSIGN','PERM_USER_CREATE')")
+    @PreAuthorize("hasAnyAuthority('PERM_TICKET_WRITE','PERM_TICKET_ASSIGN','PERM_USER_CREATE','PERM_PROJECT_ASSIGN','PERM_FOLDER_MANAGE','PERM_PROJECT_WRITE')")
     public List<UserService.UserOption> options(Authentication auth) {
         return service.userOptions(auth);
     }
