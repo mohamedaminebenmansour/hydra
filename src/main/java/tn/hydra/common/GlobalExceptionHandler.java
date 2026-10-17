@@ -1,11 +1,14 @@
 package tn.hydra.common;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.util.NoSuchElementException;
+import org.hibernate.LazyInitializationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
@@ -45,11 +48,33 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(e.getCode(), e.getMessage()));
     }
 
+    @ExceptionHandler(org.hibernate.LazyInitializationException.class)
+    public ResponseEntity<ApiError> lazyInitialization(LazyInitializationException e,
+                                                       HttpServletRequest request) {
+        log.error("LazyInitializationException on {} {}: {}",
+                request.getMethod(), request.getRequestURI(), e.getClass().getName(), e);
+        String message = "Impossible de lire une association chargée en différé : la session JPA est fermée "
+                + "(spring.jpa.open-in-view=false) — " + e.getClass().getSimpleName();
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new ApiError("LAZY_INIT", message));
+    }
+
     @ExceptionHandler(FileStorageException.class)
-    public ResponseEntity<ApiError> fileStorage(FileStorageException e) {
+    public ResponseEntity<ApiError> fileStorage(FileStorageException e, HttpServletRequest request) {
+        log.error("FileStorage failure on {} {} (code={}): {}",
+                request.getMethod(), request.getRequestURI(), e.getCode(), e.getMessage(), e);
+        String causeMsg = "";
+        Throwable cause = e.getCause();
+        if (cause != null) {
+            String m = cause.getMessage();
+            causeMsg = " | cause: " + (m != null ? truncate(m) : cause.getClass().getSimpleName());
+        }
         HttpStatus status = "FILE_NOT_FOUND".equals(e.getCode())
                 ? HttpStatus.NOT_FOUND : HttpStatus.INTERNAL_SERVER_ERROR;
-        return ResponseEntity.status(status).body(new ApiError(e.getCode(), e.getMessage()));
+        return ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new ApiError(e.getCode(), e.getMessage() + causeMsg));
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
@@ -130,13 +155,21 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> generic(Exception e) {
-        log.error("Unhandled exception", e);
-        // Temporarily include the exception class simple name so the Network tab is useful
+    public ResponseEntity<ApiError> generic(Exception e, HttpServletRequest request) {
+        log.error("Unhandled exception on {} {}",
+                request.getMethod(), request.getRequestURI(), e);
+        // Include the exception class simple name so the Network tab is useful
         // while diagnosing production 500s. Can be removed later.
         String message = "INTERNAL: " + e.getClass().getSimpleName()
                 + (e.getMessage() != null ? " — " + e.getMessage() : "");
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(new ApiError("INTERNAL", message));
+    }
+
+    /** Truncate long cause messages so the JSON body stays readable. */
+    private static String truncate(String s) {
+        if (s == null) return null;
+        return s.length() > 500 ? s.substring(0, 500) + "…[truncated]" : s;
     }
 }

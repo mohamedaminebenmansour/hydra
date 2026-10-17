@@ -55,14 +55,19 @@ public class LocalFileStorage implements FileStorage {
 
     @Override
     public StoredFile save(String key, byte[] content, String contentType) {
-        log.debug("LocalFileStorage root = {} saving key = {}", root, key);
+        log.info("LocalFileStorage.save start root={} key={} bytes={} contentType={}",
+                root, key, content.length, contentType);
         try {
             Path target = resolve(key);
             Files.createDirectories(target.getParent());
             Files.write(target, content);
+            log.info("LocalFileStorage.save OK key={} size={}", key, content.length);
             return new StoredFile(key, content.length, sha256(content));
         } catch (IOException e) {
-            throw new FileStorageException("STORAGE_WRITE_FAILED", "Failed to store file", e);
+            log.error("LocalFileStorage.save FAILED root={} key={}: {} — {}",
+                    root, key, e.getClass().getSimpleName(), e.getMessage(), e);
+            throw new FileStorageException("STORAGE_WRITE_FAILED",
+                    "Failed to store file: " + e.getMessage(), e);
         }
     }
 

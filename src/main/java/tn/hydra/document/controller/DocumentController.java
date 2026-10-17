@@ -1,6 +1,8 @@
 package tn.hydra.document.controller;
 
 import org.springframework.core.io.Resource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
@@ -32,6 +34,8 @@ import java.util.UUID;
 @RestController
 public class DocumentController {
 
+    private static final Logger log = LoggerFactory.getLogger(DocumentController.class);
+
     private final DocumentService documents;
     private final RevisionService revisions;
 
@@ -53,9 +57,22 @@ public class DocumentController {
             @RequestParam(required = false) List<String> tagNames,
             @RequestParam(required = false) String description,
             Authentication auth) {
-        DocumentResponse created = documents.upload(auth, folderId, title, docType,
-                revision, ticketId, tagNames, description, file);
-        return ResponseEntity.status(201).body(created);
+        log.info("[DOC-UPLOAD] entry projectId={} folderId={} title={} docType={} filename={} size={} user={}",
+                projectId, folderId, title, docType,
+                file == null ? null : file.getOriginalFilename(),
+                file == null ? -1L : file.getSize(),
+                auth == null ? "anonymous" : auth.getName());
+        try {
+            DocumentResponse created = documents.upload(auth, folderId, title, docType,
+                    revision, ticketId, tagNames, description, file);
+            log.info("[DOC-UPLOAD] OK projectId={} folderId={} documentId={} reference={}",
+                    projectId, folderId, created.id(), created.reference());
+            return ResponseEntity.status(201).body(created);
+        } catch (Exception e) {
+            log.error("[DOC-UPLOAD] FAILED projectId={} folderId={} title={}: {} — {}",
+                    projectId, folderId, title, e.getClass().getSimpleName(), e.getMessage(), e);
+            throw e;
+        }
     }
 
     // ── create (metadata only, no file) ───────────────────────────────────

@@ -1,4 +1,6 @@
 package tn.hydra.document.service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -48,6 +50,8 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class DocumentService {
 
+    private static final Logger log = LoggerFactory.getLogger(DocumentService.class);
+
     private final DocumentRepository documents;
     private final DocFolderRepository folders;
     private final TagRepository tags;
@@ -88,6 +92,11 @@ public class DocumentService {
     public DocumentResponse upload(Authentication auth, UUID folderId, String title,
                                    DocType docType, String revision, UUID ticketId,
                                    List<String> tagNames, String description, MultipartFile file) {
+        String userEmail = auth == null ? "anonymous" : auth.getName();
+        log.info("[DOC-UPLOAD] entry folderId={} title={} docType={} revision={} filename={} size={} user={}",
+                folderId, title, docType, revision,
+                file == null ? null : file.getOriginalFilename(),
+                file == null ? -1L : file.getSize(), userEmail);
         AppUser me = currentUser(auth);
         if (title == null || title.isBlank())
             throw new BadRequestException("REQUIRED_FIELDS", "Le titre est obligatoire");
@@ -104,8 +113,14 @@ public class DocumentService {
         // Business rule: the document must live in a folder of a project of the caller's org.
         DocFolder folder = folders.findByIdAndProject_OrgId(folderId, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("FOLDER_NOT_FOUND", "Dossier introuvable"));
+        log.info("[DOC-UPLOAD] folder loaded folderId={} projectId={} code={} isOwner={}",
+                folder.getId(), folder.getProject().getId(), folder.getCode(),
+                Boolean.TRUE.equals(me.getIsOwner()));
         folderAccess.assertAccess(me.getId(), folderId, FolderAction.UPLOAD);
+        log.info("[DOC-UPLOAD] assertAccess UPLOAD OK folderId={} userId={}", folderId, me.getId());
         assertCanUpload(auth, me, folder.getProject().getId());
+        log.info("[DOC-UPLOAD] assertCanUpload OK isOwner={} projectId={}",
+                Boolean.TRUE.equals(me.getIsOwner()), folder.getProject().getId());
 
         byte[] bytes;
         try {
@@ -128,7 +143,11 @@ public class DocumentService {
                 + "/" + folder.getCode() + "/doc/" + docId + "/"
                 + revLabel.replace(' ', '_') + "__" + fileName;
 
+        log.info("[DOC-UPLOAD] before storage.save key={} bytes={} contentType={} storage={}",
+                finalKey, bytes.length, file.getContentType(), storage.getClass().getName());
         StoredFile stored = storage.save(finalKey, bytes, file.getContentType());
+        log.info("[DOC-UPLOAD] storage.save OK key={} size={} checksum={}",
+                stored.key(), stored.size(), stored.checksumSha256());
 
         // 3. Assemble the complete Document and Revision graph together atomically
         Document doc = new Document();
@@ -163,6 +182,8 @@ public class DocumentService {
             em.persist(doc);
             em.flush();
         } catch (RuntimeException e) {
+            log.error("[DOC-UPLOAD] DB save FAILED documentId={}: {} — {}",
+                    docId, e.getClass().getSimpleName(), e.getMessage(), e);
             // Best-effort cleanup: remove the already-uploaded S3 object to avoid an orphan.
             try {
                 storage.delete(finalKey);
@@ -171,6 +192,8 @@ public class DocumentService {
             }
             throw e;
         }
+        log.info("[DOC-UPLOAD] DB save OK documentId={} reference={} storageKey={}",
+                doc.getId(), doc.getReference(), stored.key());
 
         audit.log("DOCUMENT_UPLOADED", "document", doc.getId(),
                 "{\"reference\":\"" + esc(doc.getReference()) + "\",\"rev\":\"" + revLabel + "\"}");
@@ -209,6 +232,8 @@ public class DocumentService {
         Document doc = documents.findByIdAndOrgId(id, me.getOrgId())
                 .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
         folderAccess.assertAccess(me.getId(), doc.getFolder().getId(), FolderAction.READ);
+        log.info("[DOC-GET] user={} org={} documentId={} folderId={}",
+                me.getEmail(), me.getOrgId(), id, doc.getFolder().getId());
         return mapper.toResponse(doc);
     }
 
@@ -224,37 +249,70 @@ public class DocumentService {
         AppUser me = currentUser(auth);
         // folder ACL: null = no filter (owner / project ADMIN)
         Set<UUID> readable = folderAccess.readableFolderIds(me, q.projectId());
+        log.info("[DOC-SEARCH] user={} org={} projectId={} folderId={} readableNull={}",
+                me.getEmail(), me.getOrgId(), q.projectId(), q.folderId(), readable == null);
         if (readable != null && readable.isEmpty())
             return PageResponse.from(Page.empty(pageable));
 
         Page<Document> page;
-        if (readable == null) {
-            // owner / project ADMIN: no folderIds predicate at all (avoids null IN)
-            page = documents.searchAll(me.getOrgId(), q.folderId(), q.projectId(),
-                    q.type(), q.status(), q.tagId(), q.q(), q.dateFrom(), q.dateTo(),
-                    q.uploaderId(), q.revision(), pageable);
-        } else {
-            page = documents.searchInFolders(me.getOrgId(), q.folderId(), q.projectId(),
-                    q.type(), q.status(), q.tagId(), q.q(), q.dateFrom(), q.dateTo(),
-                    q.uploaderId(), q.revision(), readable, pageable);
+        try {
+            if (readable == null) {
+                // owner / project ADMIN: no folderIds predicate at all (avoids null IN)
+                page = documents.searchAll(me.getOrgId(), q.folderId(), q.projectId(),
+                        q.type(), q.status(), q.tagId(), q.q(), q.dateFrom(), q.dateTo(),
+                        q.uploaderId(), q.revision(), pageable);
+            } else {
+                page = documents.searchInFolders(me.getOrgId(), q.folderId(), q.projectId(),
+                        q.type(), q.status(), q.tagId(), q.q(), q.dateFrom(), q.dateTo(),
+                        q.uploaderId(), q.revision(), readable, pageable);
+            }
+            // spring.jpa.open-in-view=false: force mapping while the transaction/session is
+            // still open, otherwise DocumentMapper would touch lazy folder/project/tags/
+            // revisions after the session closed (LazyInitializationException).
+            List<DocumentResponse> content = page.getContent().stream()
+                    .map(mapper::toResponse)
+                    .toList();
+            log.info("[DOC-SEARCH] page size={} total={}", content.size(), page.getTotalElements());
+            return new PageResponse<>(content, page.getTotalElements(),
+                    page.getNumber(), page.getSize());
+        } catch (RuntimeException e) {
+            log.error("[DOC-SEARCH] FAILED user={} org={} projectId={} folderId={}: {} — {}",
+                    me.getEmail(), me.getOrgId(), q.projectId(), q.folderId(),
+                    e.getClass().getSimpleName(), e.getMessage(), e);
+            throw e;
         }
-        return PageResponse.from(page.map(mapper::toResponse));
     }
 
     /** Master Document Register: all documents of a project, ordered by reference. */
     public PageResponse<DocumentResponse> register(Authentication auth, UUID projectId, Pageable pageable) {
         AppUser me = currentUser(auth);
         Set<UUID> readable = folderAccess.readableFolderIds(me, projectId);
+        log.info("[DOC-REGISTER] user={} org={} projectId={} readableNull={}",
+                me.getEmail(), me.getOrgId(), projectId, readable == null);
         if (readable != null && readable.isEmpty())
             return PageResponse.from(Page.empty(pageable));
 
         Page<Document> page;
-        if (readable == null) {
-            page = documents.registerAll(me.getOrgId(), projectId, pageable);
-        } else {
-            page = documents.registerInFolders(me.getOrgId(), projectId, readable, pageable);
+        try {
+            if (readable == null) {
+                page = documents.registerAll(me.getOrgId(), projectId, pageable);
+            } else {
+                page = documents.registerInFolders(me.getOrgId(), projectId, readable, pageable);
+            }
+            // spring.jpa.open-in-view=false: force mapping while the transaction/session is
+            // still open (same fix as search()).
+            List<DocumentResponse> content = page.getContent().stream()
+                    .map(mapper::toResponse)
+                    .toList();
+            log.info("[DOC-REGISTER] page size={} total={}", content.size(), page.getTotalElements());
+            return new PageResponse<>(content, page.getTotalElements(),
+                    page.getNumber(), page.getSize());
+        } catch (RuntimeException e) {
+            log.error("[DOC-REGISTER] FAILED user={} org={} projectId={}: {} — {}",
+                    me.getEmail(), me.getOrgId(), projectId,
+                    e.getClass().getSimpleName(), e.getMessage(), e);
+            throw e;
         }
-        return PageResponse.from(page.map(mapper::toResponse));
     }
 
     // ── update (partial) ─────────────────────────────────────────────────

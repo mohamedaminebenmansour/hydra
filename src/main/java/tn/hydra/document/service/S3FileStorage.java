@@ -1,5 +1,8 @@
 package tn.hydra.document.service;
 
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.InputStreamResource;
@@ -28,14 +31,22 @@ import java.security.NoSuchAlgorithmException;
 @Component
 public class S3FileStorage implements FileStorage {
 
+    private static final Logger log = LoggerFactory.getLogger(S3FileStorage.class);
+
     private final S3Client s3;
+    private final String endpoint;
+    private final String region;
     private final String bucket;
 
     public S3FileStorage(
             @Value("${hydra.s3.endpoint:}") String endpoint,
             @Value("${hydra.s3.region:eu-west-1}") String region,
             @Value("${hydra.s3.bucket:documents}") String bucket) {
+        this.endpoint = endpoint;
+        this.region = region;
         this.bucket = bucket;
+        // Never log secrets — endpoint/region/bucket only.
+        log.info("S3FileStorage constructor endpoint={} region={} bucket={}", endpoint, region, bucket);
         S3ClientBuilder builder = S3Client.builder()
                 .region(Region.of(region))
                 .credentialsProvider(DefaultCredentialsProvider.create())
@@ -46,8 +57,24 @@ public class S3FileStorage implements FileStorage {
         this.s3 = builder.build();
     }
 
+    @PostConstruct
+    void validate() {
+        if (endpoint == null || endpoint.isBlank()) {
+            throw new FileStorageException("S3_CONFIG_INVALID",
+                    "hydra.storage.type=s3 mais hydra.s3.endpoint (HYDRA_S3_ENDPOINT) est vide. "
+                            + "Exemple Supabase : https://<PROJECT_REF>.supabase.co/storage/v1/s3");
+        }
+        if (bucket == null || bucket.isBlank()) {
+            throw new FileStorageException("S3_CONFIG_INVALID",
+                    "hydra.storage.type=s3 mais hydra.s3.bucket (HYDRA_S3_BUCKET) est vide.");
+        }
+        log.info("S3FileStorage ready endpoint={} region={} bucket={}", endpoint, region, bucket);
+    }
+
     @Override
     public StoredFile save(String key, byte[] content, String contentType) {
+        log.info("S3FileStorage.save start bucket={} key={} bytes={} contentType={}",
+                bucket, key, content.length, contentType);
         try {
             PutObjectRequest request = PutObjectRequest.builder()
                     .bucket(bucket)
@@ -55,10 +82,19 @@ public class S3FileStorage implements FileStorage {
                     .contentType(contentType)
                     .build();
             s3.putObject(request, software.amazon.awssdk.core.sync.RequestBody.fromBytes(content));
+            log.info("S3FileStorage.save OK bucket={} key={} size={}", bucket, key, content.length);
             return new StoredFile(key, content.length, sha256(content));
         } catch (SdkException e) {
-            throw new FileStorageException("STORAGE_WRITE_FAILED", "Échec d'enregistrement du fichier", e);
+            log.error("S3FileStorage.save FAILED bucket={} key={}: {}", bucket, key, e.getMessage(), e);
+            throw new FileStorageException("STORAGE_WRITE_FAILED",
+                    "Échec d'enregistrement du fichier: " + truncate(e.getMessage()), e);
         }
+    }
+
+    /** Truncate long SDK error messages so JSON body + logs stay readable. */
+    private static String truncate(String s) {
+        if (s == null) return null;
+        return s.length() > 300 ? s.substring(0, 300) + "…[truncated]" : s;
     }
 
     @Override
@@ -73,7 +109,9 @@ public class S3FileStorage implements FileStorage {
         } catch (NoSuchKeyException e) {
             throw new FileStorageException("FILE_NOT_FOUND", "Fichier introuvable", e);
         } catch (SdkException e) {
-            throw new FileStorageException("STORAGE_READ_FAILED", "Fichier illisible", e);
+            log.error("S3FileStorage.load FAILED bucket={} key={}: {}", bucket, key, e.getMessage(), e);
+            throw new FileStorageException("STORAGE_READ_FAILED",
+                    "Fichier illisible: " + truncate(e.getMessage()), e);
         }
     }
 
@@ -89,7 +127,9 @@ public class S3FileStorage implements FileStorage {
         } catch (NoSuchKeyException e) {
             throw new FileStorageException("FILE_NOT_FOUND", "Fichier introuvable", e);
         } catch (SdkException e) {
-            throw new FileStorageException("STORAGE_READ_FAILED", "Fichier illisible", e);
+            log.error("S3FileStorage.loadAsResource FAILED bucket={} key={}: {}", bucket, key, e.getMessage(), e);
+            throw new FileStorageException("STORAGE_READ_FAILED",
+                    "Fichier illisible: " + truncate(e.getMessage()), e);
         }
     }
 
@@ -102,7 +142,9 @@ public class S3FileStorage implements FileStorage {
                     .build();
             s3.deleteObject(request);
         } catch (SdkException e) {
-            throw new FileStorageException("STORAGE_DELETE_FAILED", "Échec de suppression du fichier", e);
+            log.error("S3FileStorage.delete FAILED bucket={} key={}: {}", bucket, key, e.getMessage(), e);
+            throw new FileStorageException("STORAGE_DELETE_FAILED",
+                    "Échec de suppression du fichier: " + truncate(e.getMessage()), e);
         }
     }
 
@@ -118,7 +160,9 @@ public class S3FileStorage implements FileStorage {
         } catch (NoSuchKeyException e) {
             return false;
         } catch (SdkException e) {
-            throw new FileStorageException("STORAGE_READ_FAILED", "Fichier illisible", e);
+            log.error("S3FileStorage.exists FAILED bucket={} key={}: {}", bucket, key, e.getMessage(), e);
+            throw new FileStorageException("STORAGE_READ_FAILED",
+                    "Fichier illisible: " + truncate(e.getMessage()), e);
         }
     }
 
