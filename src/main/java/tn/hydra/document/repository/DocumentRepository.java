@@ -75,7 +75,7 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                       and (:dateTo is null or d.createdAt <= :dateTo)
                       and (:tagId is null or exists (select 1 from d.tags t where t.id = :tagId))
                       and (:q is null or lower(d.title) like :q
-                                   or lower(d.reference) like :q))
+                                   or lower(d.reference) like :q)
                     order by d.createdAt desc
                     """,
             countQuery = """
@@ -91,7 +91,7 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                       and (:dateTo is null or d.createdAt <= :dateTo)
                       and (:tagId is null or exists (select 1 from d.tags t where t.id = :tagId))
                       and (:q is null or lower(d.title) like :q
-                                   or lower(d.reference) like :q))
+                                   or lower(d.reference) like :q)
                     """)
     Page<Document> searchAll(@Param("orgId") UUID orgId,
                              @Param("folderId") UUID folderId,
@@ -130,7 +130,7 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                       and (:dateTo is null or d.createdAt <= :dateTo)
                       and (:tagId is null or exists (select 1 from d.tags t where t.id = :tagId))
                       and (:q is null or lower(d.title) like :q
-                                   or lower(d.reference) like :q))
+                                   or lower(d.reference) like :q)
                     order by d.createdAt desc
                     """,
             countQuery = """
@@ -147,7 +147,7 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                       and (:dateTo is null or d.createdAt <= :dateTo)
                       and (:tagId is null or exists (select 1 from d.tags t where t.id = :tagId))
                       and (:q is null or lower(d.title) like :q
-                                   or lower(d.reference) like :q))
+                                   or lower(d.reference) like :q)
                     """)
     Page<Document> searchInFolders(@Param("orgId") UUID orgId,
                                    @Param("folderId") UUID folderId,
