@@ -11,7 +11,13 @@ import java.util.List;
 /**
  * Entity <-> DTO mapping. Derived fields (project from folder, ticket id null-safe,
  * tag names, revision count, uploader/time) are wired with explicit mappings.
- * Must be used within a transaction so lazy folder/project/ticket load correctly.
+ *
+ * <p>Read paths (search/register/get/byReference) fetch folder&#8594;project, tags and
+ * revisions <b>eagerly</b> in the repository queries (SELECT DISTINCT + JOIN FETCH), so
+ * mapping never touches an uninitialized lazy association even though
+ * spring.jpa.open-in-view=false. The ticket id is read proxy-safely (getId() does not
+ * initialize the lazy association). Write paths (create/update/linkTicket) map inside
+ * an active transaction where lazy loading still works as a fallback.
  */
 @Mapper(componentModel = "spring")
 public interface DocumentMapper {

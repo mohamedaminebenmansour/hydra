@@ -229,20 +229,38 @@ public class DocumentService {
     // ── read ─────────────────────────────────────────────────────────────
     public DocumentResponse get(Authentication auth, UUID id) {
         AppUser me = currentUser(auth);
-        Document doc = documents.findByIdAndOrgId(id, me.getOrgId())
-                .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
-        folderAccess.assertAccess(me.getId(), doc.getFolder().getId(), FolderAction.READ);
-        log.info("[DOC-GET] user={} org={} documentId={} folderId={}",
-                me.getEmail(), me.getOrgId(), id, doc.getFolder().getId());
-        return mapper.toResponse(doc);
+        try {
+            Document doc = documents.findByIdAndOrgId(id, me.getOrgId())
+                    .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
+            folderAccess.assertAccess(me.getId(), doc.getFolder().getId(), FolderAction.READ);
+            DocumentResponse response = mapper.toResponse(doc);
+            log.info("[DOC-GET] user={} org={} documentId={} folderId={}",
+                    me.getEmail(), me.getOrgId(), id, response.folderId());
+            return response;
+        } catch (RuntimeException e) {
+            log.error("[DOC-GET] FAILED user={} org={} documentId={}: {} — {}",
+                    me.getEmail(), me.getOrgId(), id,
+                    e.getClass().getSimpleName(), e.getMessage(), e);
+            throw e;
+        }
     }
 
     public DocumentResponse byReference(Authentication auth, String reference) {
         AppUser me = currentUser(auth);
-        Document doc = documents.findByOrgIdAndReferenceIgnoreCase(me.getOrgId(), reference)
-                .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
-        folderAccess.assertAccess(me.getId(), doc.getFolder().getId(), FolderAction.READ);
-        return mapper.toResponse(doc);
+        try {
+            Document doc = documents.findByOrgIdAndReferenceIgnoreCase(me.getOrgId(), reference)
+                    .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
+            folderAccess.assertAccess(me.getId(), doc.getFolder().getId(), FolderAction.READ);
+            DocumentResponse response = mapper.toResponse(doc);
+            log.info("[DOC-BYREF] user={} org={} reference={} folderId={}",
+                    me.getEmail(), me.getOrgId(), reference, response.folderId());
+            return response;
+        } catch (RuntimeException e) {
+            log.error("[DOC-BYREF] FAILED user={} org={} reference={}: {} — {}",
+                    me.getEmail(), me.getOrgId(), reference,
+                    e.getClass().getSimpleName(), e.getMessage(), e);
+            throw e;
+        }
     }
 
     public PageResponse<DocumentResponse> search(Authentication auth, DocumentSearchQuery q, Pageable pageable) {
