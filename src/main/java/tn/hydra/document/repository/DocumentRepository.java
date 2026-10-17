@@ -74,8 +74,8 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                       and (:dateFrom is null or d.createdAt >= :dateFrom)
                       and (:dateTo is null or d.createdAt <= :dateTo)
                       and (:tagId is null or exists (select 1 from d.tags t where t.id = :tagId))
-                      and (:q is null or lower(d.title) like :q
-                                   or lower(d.reference) like :q)
+                      and (:hasText = false or lower(d.title) like :pattern
+                      or lower(d.reference) like :pattern)
                     order by d.createdAt desc
                     """,
             countQuery = """
@@ -90,8 +90,8 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                       and (:dateFrom is null or d.createdAt >= :dateFrom)
                       and (:dateTo is null or d.createdAt <= :dateTo)
                       and (:tagId is null or exists (select 1 from d.tags t where t.id = :tagId))
-                      and (:q is null or lower(d.title) like :q
-                                   or lower(d.reference) like :q)
+                      and (:hasText = false or lower(d.title) like :pattern
+                      or lower(d.reference) like :pattern)
                     """)
     Page<Document> searchAll(@Param("orgId") UUID orgId,
                              @Param("folderId") UUID folderId,
@@ -99,7 +99,8 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                              @Param("type") DocType type,
                              @Param("status") DocStatus status,
                              @Param("tagId") UUID tagId,
-                             @Param("q") String q,
+                             @Param("hasText") boolean hasText,
+                             @Param("pattern") String pattern,
                              @Param("dateFrom") Instant dateFrom,
                              @Param("dateTo") Instant dateTo,
                              @Param("uploaderId") UUID uploaderId,
@@ -129,8 +130,8 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                       and (:dateFrom is null or d.createdAt >= :dateFrom)
                       and (:dateTo is null or d.createdAt <= :dateTo)
                       and (:tagId is null or exists (select 1 from d.tags t where t.id = :tagId))
-                      and (:q is null or lower(d.title) like :q
-                                   or lower(d.reference) like :q)
+                      and (:hasText = false or lower(d.title) like :pattern
+                      or lower(d.reference) like :pattern)
                     order by d.createdAt desc
                     """,
             countQuery = """
@@ -146,8 +147,8 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                       and (:dateFrom is null or d.createdAt >= :dateFrom)
                       and (:dateTo is null or d.createdAt <= :dateTo)
                       and (:tagId is null or exists (select 1 from d.tags t where t.id = :tagId))
-                      and (:q is null or lower(d.title) like :q
-                                   or lower(d.reference) like :q)
+                      and (:hasText = false or lower(d.title) like :pattern
+                      or lower(d.reference) like :pattern)
                     """)
     Page<Document> searchInFolders(@Param("orgId") UUID orgId,
                                    @Param("folderId") UUID folderId,
@@ -155,7 +156,8 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                                    @Param("type") DocType type,
                                    @Param("status") DocStatus status,
                                    @Param("tagId") UUID tagId,
-                                   @Param("q") String q,
+                                   @Param("hasText") boolean hasText,
+                             @Param("pattern") String pattern,
                                    @Param("dateFrom") Instant dateFrom,
                                    @Param("dateTo") Instant dateTo,
                                    @Param("uploaderId") UUID uploaderId,
