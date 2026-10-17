@@ -272,21 +272,21 @@ public class DocumentService {
         if (readable != null && readable.isEmpty())
             return PageResponse.from(Page.empty(pageable));
 
-        // Normalize free-text so lower(concat('%', :q, '%')) never runs against bytea on PostgreSQL:
-        // blank/empty becomes null (JPQL short-circuits on ':q is null'),
-        // non-blank is pre-lowercased in Java so JPQL only lower()s columns, not the concat pattern.
-        String text = (q.q() == null || q.q().isBlank()) ? null : q.q().trim().toLowerCase();
+        // Build the like-pattern in Java so :q is either null (short-circuits) or a
+        // typed String. Never builds '%'||?||'%' in SQL — PostgreSQL would type a null
+        // param inside concat() as bytea → "operator does not exist: text ~~ bytea".
+        String pattern = (q.q() == null || q.q().isBlank()) ? null : "%" + q.q().trim().toLowerCase() + "%";
 
         Page<Document> page;
         try {
             if (readable == null) {
                 // owner / project ADMIN: no folderIds predicate at all (avoids null IN)
                 page = documents.searchAll(me.getOrgId(), q.folderId(), q.projectId(),
-                        q.type(), q.status(), q.tagId(), text, q.dateFrom(), q.dateTo(),
+                        q.type(), q.status(), q.tagId(), pattern, q.dateFrom(), q.dateTo(),
                         q.uploaderId(), q.revision(), pageable);
             } else {
                 page = documents.searchInFolders(me.getOrgId(), q.folderId(), q.projectId(),
-                        q.type(), q.status(), q.tagId(), text, q.dateFrom(), q.dateTo(),
+                        q.type(), q.status(), q.tagId(), pattern, q.dateFrom(), q.dateTo(),
                         q.uploaderId(), q.revision(), readable, pageable);
             }
             // spring.jpa.open-in-view=false: force mapping while the transaction/session is
