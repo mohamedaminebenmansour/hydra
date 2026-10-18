@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.SQLRestriction;
 import org.springframework.data.domain.Persistable;
 import tn.hydra.common.id.AssignedUuid;
@@ -87,12 +88,14 @@ public class Document extends Auditable implements Persistable<UUID> {
 
     @OneToMany(mappedBy = "document", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("createdAt asc")
+    @BatchSize(size = 50)
     private List<DocumentRevision> revisions = new ArrayList<>();
 
     @ManyToMany
     @JoinTable(name = "document_tag",
             joinColumns = @JoinColumn(name = "document_id"),
             inverseJoinColumns = @JoinColumn(name = "tag_id"))
+    @BatchSize(size = 50)
     private Set<Tag> tags = new LinkedHashSet<>();
 
     // ---- convenience helpers keep both sides of the relations consistent ----

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -196,13 +197,27 @@ class DocumentServiceTest {
     @Test
     void register_returnsProjectDocumentsOrderedByReference() {
         when(folderAccess.readableFolderIds(any(), eq(PROJECT))).thenReturn(null);
-        when(documents.registerAll(eq(ORG), eq(PROJECT), any(Pageable.class)))
+        when(documents.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         var page = service.register(auth, PROJECT, Pageable.ofSize(20));
 
         assertThat(page.items()).isEmpty();
-        verify(documents).registerAll(eq(ORG), eq(PROJECT), any(Pageable.class));
+        verify(documents).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void search_asOwnerListsFolderDocuments() {
+        when(folderAccess.readableFolderIds(any(), eq(PROJECT))).thenReturn(null);
+        when(documents.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var page = service.search(auth, new tn.hydra.document.dto.DocumentSearchQuery(
+                FOLDER, PROJECT, null, null, null, null, null, null, null, null),
+                Pageable.ofSize(200));
+
+        assertThat(page.items()).isEmpty();
+        verify(documents).findAll(any(Specification.class), any(Pageable.class));
     }
 
     // ── soft delete ──────────────────────────────────────────────────────

@@ -1,8 +1,11 @@
 package tn.hydra.document.service;
+import org.hibernate.Hibernate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -24,6 +27,7 @@ import tn.hydra.document.dto.LinkTicketRequest;
 import tn.hydra.document.dto.UpdateDocumentRequest;
 import tn.hydra.document.repository.DocFolderRepository;
 import tn.hydra.document.repository.DocumentRepository;
+import tn.hydra.document.repository.DocumentSpecifications;
 import tn.hydra.document.repository.TagRepository;
 import tn.hydra.exception.BadRequestException;
 import tn.hydra.exception.ResourceNotFoundException;
@@ -197,7 +201,7 @@ public class DocumentService {
 
         audit.log("DOCUMENT_UPLOADED", "document", doc.getId(),
                 "{\"reference\":\"" + esc(doc.getReference()) + "\",\"rev\":\"" + revLabel + "\"}");
-        return mapper.toResponse(doc);
+        return toResponse(doc);
     }
 
     // ── create (metadata only, no file) ───────────────────────────────────
@@ -223,7 +227,7 @@ public class DocumentService {
         documents.save(doc);
         audit.log("DOCUMENT_CREATED", "document", doc.getId(),
                 "{\"reference\":\"" + esc(doc.getReference()) + "\"}");
-        return mapper.toResponse(doc);
+        return toResponse(doc);
     }
 
     // ── read ─────────────────────────────────────────────────────────────
@@ -233,7 +237,7 @@ public class DocumentService {
             Document doc = documents.findByIdAndOrgId(id, me.getOrgId())
                     .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
             folderAccess.assertAccess(me.getId(), doc.getFolder().getId(), FolderAction.READ);
-            DocumentResponse response = mapper.toResponse(doc);
+            DocumentResponse response = toResponse(doc);
             log.info("[DOC-GET] user={} org={} documentId={} folderId={}",
                     me.getEmail(), me.getOrgId(), id, response.folderId());
             return response;
@@ -251,7 +255,7 @@ public class DocumentService {
             Document doc = documents.findByOrgIdAndReferenceIgnoreCase(me.getOrgId(), reference)
                     .orElseThrow(() -> new ResourceNotFoundException("DOCUMENT_NOT_FOUND", "Document introuvable"));
             folderAccess.assertAccess(me.getId(), doc.getFolder().getId(), FolderAction.READ);
-            DocumentResponse response = mapper.toResponse(doc);
+            DocumentResponse response = toResponse(doc);
             log.info("[DOC-BYREF] user={} org={} reference={} folderId={}",
                     me.getEmail(), me.getOrgId(), reference, response.folderId());
             return response;
@@ -272,31 +276,11 @@ public class DocumentService {
         if (readable != null && readable.isEmpty())
             return PageResponse.from(Page.empty(pageable));
 
-        // Never bind a null into LIKE — PostgreSQL cannot type a null LIKE param
-        // ("could not determine data type of parameter $N"). Use a boolean flag +
-        // an always-non-null String: hasText=false short-circuits the LIKE branch,
-        // pattern is always a real String ("%" when unused) so the type is known.
-        boolean hasText = q.q() != null && !q.q().isBlank();
-        String pattern = hasText ? "%" + q.q().trim().toLowerCase() + "%" : "%";
-
-        Page<Document> page;
+        Pageable sorted = withDefaultSort(pageable, Sort.by(Sort.Direction.DESC, "createdAt"));
         try {
-            if (readable == null) {
-                // owner / project ADMIN: no folderIds predicate at all (avoids null IN)
-                page = documents.searchAll(me.getOrgId(), q.folderId(), q.projectId(),
-                        q.type(), q.status(), q.tagId(), hasText, pattern,
-                        q.dateFrom(), q.dateTo(), q.uploaderId(), q.revision(), pageable);
-            } else {
-                page = documents.searchInFolders(me.getOrgId(), q.folderId(), q.projectId(),
-                        q.type(), q.status(), q.tagId(), hasText, pattern,
-                        q.dateFrom(), q.dateTo(), q.uploaderId(), q.revision(), readable, pageable);
-            }
-            // spring.jpa.open-in-view=false: force mapping while the transaction/session is
-            // still open, otherwise DocumentMapper would touch lazy folder/project/tags/
-            // revisions after the session closed (LazyInitializationException).
-            List<DocumentResponse> content = page.getContent().stream()
-                    .map(mapper::toResponse)
-                    .toList();
+            Page<Document> page = documents.findAll(
+                    DocumentSpecifications.search(me.getOrgId(), q, readable), sorted);
+            List<DocumentResponse> content = toResponses(page.getContent());
             log.info("[DOC-SEARCH] page size={} total={}", content.size(), page.getTotalElements());
             return new PageResponse<>(content, page.getTotalElements(),
                     page.getNumber(), page.getSize());
@@ -317,18 +301,11 @@ public class DocumentService {
         if (readable != null && readable.isEmpty())
             return PageResponse.from(Page.empty(pageable));
 
-        Page<Document> page;
+        Pageable sorted = withDefaultSort(pageable, Sort.by(Sort.Direction.ASC, "reference"));
         try {
-            if (readable == null) {
-                page = documents.registerAll(me.getOrgId(), projectId, pageable);
-            } else {
-                page = documents.registerInFolders(me.getOrgId(), projectId, readable, pageable);
-            }
-            // spring.jpa.open-in-view=false: force mapping while the transaction/session is
-            // still open (same fix as search()).
-            List<DocumentResponse> content = page.getContent().stream()
-                    .map(mapper::toResponse)
-                    .toList();
+            Page<Document> page = documents.findAll(
+                    DocumentSpecifications.register(me.getOrgId(), projectId, readable), sorted);
+            List<DocumentResponse> content = toResponses(page.getContent());
             log.info("[DOC-REGISTER] page size={} total={}", content.size(), page.getTotalElements());
             return new PageResponse<>(content, page.getTotalElements(),
                     page.getNumber(), page.getSize());
@@ -357,7 +334,7 @@ public class DocumentService {
         documents.save(doc);
         audit.log("DOCUMENT_UPDATED", "document", doc.getId(),
                 "{\"reference\":\"" + esc(doc.getReference()) + "\"}");
-        return mapper.toResponse(doc);
+        return toResponse(doc);
     }
 
     // ── link / unlink ticket ─────────────────────────────────────────────
@@ -370,7 +347,7 @@ public class DocumentService {
         documents.save(doc);
         audit.log("DOCUMENT_TICKET_LINKED", "document", doc.getId(),
                 "{\"ticketId\":" + (req.ticketId() == null ? "null" : "\"" + req.ticketId() + "\"") + "}");
-        return mapper.toResponse(doc);
+        return toResponse(doc);
     }
 
     // ── soft delete ──────────────────────────────────────────────────────
@@ -387,6 +364,25 @@ public class DocumentService {
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
+    /**
+     * Map inside the open persistence context. Tags/revisions are lazy; initialize
+     * them here (batched via {@code @BatchSize}) so MapStruct never hits a closed session.
+     */
+    private List<DocumentResponse> toResponses(List<Document> docs) {
+        return docs.stream().map(this::toResponse).toList();
+    }
+
+    private DocumentResponse toResponse(Document doc) {
+        Hibernate.initialize(doc.getTags());
+        Hibernate.initialize(doc.getRevisions());
+        return mapper.toResponse(doc);
+    }
+
+    private static Pageable withDefaultSort(Pageable pageable, Sort fallback) {
+        if (pageable.getSort().isSorted()) return pageable;
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), fallback);
+    }
+
     private AppUser currentUser(Authentication auth) {
         return users.findByEmail(auth.getName())
                 .orElseThrow(() -> new ResourceNotFoundException("USER_NOT_FOUND", "Utilisateur introuvable"));
