@@ -7,9 +7,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import tn.hydra.common.BusinessRuleException;
-import tn.hydra.common.GlobalExceptionHandler;
-
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -26,19 +24,21 @@ public class ProcessController {
         return new ResponseEntity<>(processId, HttpStatus.CREATED);
     }
 
-    @PostMapping("/{processId}/steps/{stepKey}/complete")
-    public ResponseEntity<Void> completeStep(@PathVariable UUID processId, @PathVariable String stepKey,
+    @PostMapping("/{processId}/steps/{stepInstanceId}/complete")
+    public ResponseEntity<Void> completeStep(@PathVariable UUID processId,
+                                             @PathVariable UUID stepInstanceId,
                                              @RequestBody ProcessService.CompleteStepRequest req) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        processService.completeStep(auth, processId, stepKey, req);
+        processService.completeStep(auth, processId, stepInstanceId, req);
         return ResponseEntity.ok().build();
     }
 
-    @PostMapping("/{processId}/steps/{stepKey}/reject")
-    public ResponseEntity<Void> rejectStep(@PathVariable UUID processId, @PathVariable String stepKey,
+    @PostMapping("/{processId}/steps/{stepInstanceId}/reject")
+    public ResponseEntity<Void> rejectStep(@PathVariable UUID processId,
+                                           @PathVariable UUID stepInstanceId,
                                            @RequestBody ProcessService.RejectStepRequest req) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        processService.rejectStep(auth, processId, stepKey, req);
+        processService.rejectStep(auth, processId, stepInstanceId, req);
         return ResponseEntity.ok().build();
     }
 
@@ -49,10 +49,10 @@ public class ProcessController {
         return ResponseEntity.ok(timeline);
     }
 
-    @GetMapping("/{processId}/my-tasks")
-    public ResponseEntity<java.util.List<ProcessService.MyTaskSummary>> getMyTasks(@PathVariable UUID processId) {
+    @GetMapping("/my-tasks")
+    public ResponseEntity<List<ProcessService.MyTaskSummary>> getMyTasks() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        java.util.List<ProcessService.MyTaskSummary> tasks = processService.listMyTasks(auth, processId);
+        List<ProcessService.MyTaskSummary> tasks = processService.listMyTasks(auth);
         return ResponseEntity.ok(tasks);
     }
 }
