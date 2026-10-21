@@ -17,6 +17,7 @@ xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/x
 <java.version>21</java.version>
 <mapstruct.version>1.6.3</mapstruct.version>
 <awssdk.version>2.54.10</awssdk.version>
+<lombok.version>1.18.38</lombok.version>
 </properties>
 <dependencies>
 <dependency>
@@ -61,7 +62,13 @@ xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/x
 <dependency>
 <groupId>org.projectlombok</groupId>
 <artifactId>lombok</artifactId>
+<version>${lombok.version}</version>
 <optional>true</optional>
+</dependency>
+<dependency>
+<groupId>org.projectlombok</groupId>
+<artifactId>lombok-mapstruct-binding</artifactId>
+<version>0.2.0</version>
 </dependency>
 <dependency>
 <groupId>org.mapstruct</groupId>
@@ -129,6 +136,12 @@ xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/x
 <path>
 <groupId>org.projectlombok</groupId>
 <artifactId>lombok</artifactId>
+<version>${lombok.version}</version>
+</path>
+<path>
+<groupId>org.projectlombok</groupId>
+<artifactId>lombok-mapstruct-binding</artifactId>
+<version>0.2.0</version>
 </path>
 <path>
 <groupId>org.mapstruct</groupId>
@@ -149,6 +162,12 @@ xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/x
 <path>
 <groupId>org.projectlombok</groupId>
 <artifactId>lombok</artifactId>
+<version>${lombok.version}</version>
+</path>
+<path>
+<groupId>org.projectlombok</groupId>
+<artifactId>lombok-mapstruct-binding</artifactId>
+<version>0.2.0</version>
 </path>
 <path>
 <groupId>org.mapstruct</groupId>

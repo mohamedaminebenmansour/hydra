@@ -52,7 +52,7 @@ class GlobalExceptionHandlerTest {
     @Test
     void anythingElseReturns500WithClassNameInMessage() {
         ResponseEntity<GlobalExceptionHandler.ApiError> res =
-                handler.generic(new IllegalStateException("boom"));
+                handler.generic(new IllegalStateException("boom"), null);
 
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(res.getBody().code()).isEqualTo("INTERNAL");

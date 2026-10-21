@@ -167,7 +167,7 @@ public class TicketService {
 
         if (!current.allowedTransitions().contains(target))
             throw new BusinessRuleException("INVALID_STATUS",
-                    "Transition non autorisée : " + current.name() + " → " + target.name());
+                    "Transition non autorisée : " + current + " → " + target.name());
 
         boolean terminal = (target == TicketStatus.AS_BUILT);
         if (terminal) {
@@ -183,7 +183,7 @@ public class TicketService {
                     """, target.name(), id, me.getOrgId());
         }
         audit.log("TICKET_STATUS_CHANGED", "ticket", id,
-                "{\"from\":\"" + current.name() + "\",\"to\":\"" + target.name() + "\"}");
+                "{\"from\":\"" + current + "\",\"to\":\"" + target.name() + "\"}");
         return get(auth, id);
     }
 
@@ -193,6 +193,61 @@ public class TicketService {
         Map<String, Object> t = requireTicket(me, id);
         return TicketStatus.from((String) t.get("status"))
                 .allowedTransitions().stream().map(Enum::name).sorted().toList();
+    }
+
+    // ══════════════════ 5b. SIMPLE STATUS TRANSITIONS ══════════════════
+
+    @Transactional
+    public void start(Authentication auth, UUID id) {
+        AppUser me = users.findByEmail(auth.getName()).orElseThrow();
+        Map<String, Object> t = requireTicket(me, id);
+        String current = (String) t.get("status");
+        if (!"OUVERT".equals(current))
+            throw new BusinessRuleException("INVALID_STATUS", "Transition non autorisée : " + current + " → OUVERT");
+        jdbc.update("""
+                update ticket set status = 'EN_COURS', updated_at = now()
+                where id = ? and org_id = ?
+                """, id, me.getOrgId());
+        audit.log("TICKET_STATUS_CHANGED", "ticket", id, "{\"from\":\"" + current + "\",\"to\":\"EN_COURS\"}");
+    }
+
+    @Transactional
+    public void wait_(Authentication auth, UUID id) {
+        AppUser me = users.findByEmail(auth.getName()).orElseThrow();
+        Map<String, Object> t = requireTicket(me, id);
+        String current = (String) t.get("status");
+        if (!"EN_COURS".equals(current))
+            throw new BusinessRuleException("INVALID_STATUS", "Transition non autorisée : " + current + " → EN_ATTENTE");
+        jdbc.update("""
+                update ticket set status = 'EN_ATTENTE', updated_at = now()
+                where id = ? and org_id = ?
+                """, id, me.getOrgId());
+        audit.log("TICKET_STATUS_CHANGED", "ticket", id, "{\"from\":\"" + current + "\",\"to\":\"EN_ATTENTE\"}");
+    }
+
+    @Transactional
+    public void resume(Authentication auth, UUID id) {
+        AppUser me = users.findByEmail(auth.getName()).orElseThrow();
+        Map<String, Object> t = requireTicket(me, id);
+        String current = (String) t.get("status");
+        if (!"EN_ATTENTE".equals(current))
+            throw new BusinessRuleException("INVALID_STATUS", "Transition non autorisée : " + current + " → EN_COURS");
+        jdbc.update("""
+                update ticket set status = 'EN_COURS', updated_at = now()
+                where id = ? and org_id = ?
+                """, id, me.getOrgId());
+        audit.log("TICKET_STATUS_CHANGED", "ticket", id, "{\"from\":\"" + current + "\",\"to\":\"EN_COURS\"}");
+    }
+
+    @Transactional
+    public void close(Authentication auth, UUID id) {
+        AppUser me = users.findByEmail(auth.getName()).orElseThrow();
+        Map<String, Object> t = requireTicket(me, id);
+        jdbc.update("""
+                update ticket set status = 'RESOLU', resolved_at = now(), resolved_by = ?, updated_at = now()
+                where id = ? and org_id = ?
+                """, me.getId(), id, me.getOrgId());
+        audit.log("TICKET_CLOSED", "ticket", id, null);
     }
 
     // ══════════════════ 6. LINKED DOCUMENTS ══════════════════
@@ -292,3 +347,4 @@ public class TicketService {
     }
 
 }
+
