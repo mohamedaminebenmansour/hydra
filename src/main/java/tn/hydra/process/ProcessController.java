@@ -1,6 +1,5 @@
 package tn.hydra.process;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -14,8 +13,11 @@ import java.util.UUID;
 @RequestMapping("/api/processes")
 public class ProcessController {
 
-    @Autowired
-    private ProcessService processService;
+    private final ProcessService processService;
+
+    public ProcessController(ProcessService processService) {
+        this.processService = processService;
+    }
 
     @PostMapping("/start")
     public ResponseEntity<UUID> start(@RequestBody ProcessService.StartProcessRequest req) {
