@@ -27,21 +27,21 @@ public class ProcessController {
     }
 
     @PostMapping("/{processId}/steps/{stepInstanceId}/complete")
-    public ResponseEntity<Void> completeStep(@PathVariable UUID processId,
-                                             @PathVariable UUID stepInstanceId,
-                                             @RequestBody ProcessService.CompleteStepRequest req) {
+    public ResponseEntity<ProcessService.StepResult> completeStep(@PathVariable UUID processId,
+                                                                  @PathVariable UUID stepInstanceId,
+                                                                  @RequestBody ProcessService.CompleteStepRequest req) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         processService.completeStep(auth, processId, stepInstanceId, req);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(new ProcessService.StepResult(stepInstanceId, "DONE"));
     }
 
     @PostMapping("/{processId}/steps/{stepInstanceId}/reject")
-    public ResponseEntity<Void> rejectStep(@PathVariable UUID processId,
-                                           @PathVariable UUID stepInstanceId,
-                                           @RequestBody ProcessService.RejectStepRequest req) {
+    public ResponseEntity<ProcessService.StepResult> rejectStep(@PathVariable UUID processId,
+                                                                @PathVariable UUID stepInstanceId,
+                                                                @RequestBody ProcessService.RejectStepRequest req) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         processService.rejectStep(auth, processId, stepInstanceId, req);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(new ProcessService.StepResult(stepInstanceId, "REJECTED"));
     }
 
     @GetMapping("/{processId}/timeline")
@@ -56,5 +56,46 @@ public class ProcessController {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         List<ProcessService.MyTaskSummary> tasks = processService.listMyTasks(auth);
         return ResponseEntity.ok(tasks);
+    }
+
+    /* ═════════════════════════════════════════════════════════════════════
+       PROJECT-SCOPED PROCESS ENDPOINTS  (chantier screen)
+       ════════════════════════════════════════════════════════════════════ */
+
+    @GetMapping("/projects/{projectId}/processes")
+    public ResponseEntity<List<ProcessService.ProcessInstanceSummary>> listProcessesByProject(
+            @PathVariable UUID projectId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        List<ProcessService.ProcessInstanceSummary> processes =
+                processService.listProcessesByProject(auth, projectId);
+        return ResponseEntity.ok(processes);
+    }
+
+    /* ═════════════════════════════════════════════════════════════════════
+       TEMPLATES
+       ════════════════════════════════════════════════════════════════════ */
+
+    @GetMapping("/templates")
+    public ResponseEntity<List<ProcessService.TemplateOption>> listTemplatesForOrg() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        List<ProcessService.TemplateOption> templates = processService.listTemplatesForOrg(auth);
+        return ResponseEntity.ok(templates);
+    }
+
+    @GetMapping("/projects/{projectId}/process-templates")
+    public ResponseEntity<List<ProcessService.TemplateOption>> listEnabledTemplatesForProject(
+            @PathVariable UUID projectId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        List<ProcessService.TemplateOption> templates =
+                processService.listEnabledTemplatesForProject(auth, projectId);
+        return ResponseEntity.ok(templates);
+    }
+
+    @PostMapping("/projects/{projectId}/process-templates")
+    public ResponseEntity<Void> assignTemplateToProject(@PathVariable UUID projectId,
+                                                        @RequestBody ProcessService.AssignTemplateRequest req) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        processService.assignTemplateToProject(auth, projectId, req);
+        return ResponseEntity.ok().build();
     }
 }

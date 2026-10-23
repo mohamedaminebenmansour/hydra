@@ -23,6 +23,7 @@ import tn.hydra.user.AppUserRepository;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -46,7 +47,7 @@ public class AuthController {
     }
 
     public record LoginRequest(String email, String password) {}
-    public record MeResponse(String email, String fullName, boolean isOwner, boolean mustChangePassword, Set<String> permissions) {}
+    public record MeResponse(UUID id, String email, String fullName, boolean isOwner, boolean mustChangePassword, Set<String> permissions) {}
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest body,
@@ -100,7 +101,7 @@ public class AuthController {
         Set<String> perms = Boolean.TRUE.equals(u.getIsOwner())
                 ? permissions.allPermissions()
                 : permissions.permissionsOf(u.getId());
-        return new MeResponse(u.getEmail(), u.getFullName(),
+        return new MeResponse(u.getId(), u.getEmail(), u.getFullName(),
                 Boolean.TRUE.equals(u.getIsOwner()),
                 Boolean.TRUE.equals(u.getMustChangePassword()),
                 perms);
